@@ -50,7 +50,9 @@ import com.example.ui.theme.VividViolet
 @Composable
 fun RedmiSetupGuide(
     hasMicPermission: Boolean,
+    hasOverlayPermission: Boolean = false,
     onRequestMicPermission: () -> Unit,
+    onRequestOverlayPermission: () -> Unit = {},
     onOpenDefaultAssistantSettings: () -> Unit,
     onOpenGestureSettings: () -> Unit,
     onTestAssistantOverlay: () -> Unit,
@@ -174,7 +176,19 @@ fun RedmiSetupGuide(
             isCompleted = hasMicPermission
         )
 
-        // Step 4: Summon Anywhere (Notification & Quick Tile)
+        // Step 4: System Floating Orb Overlay
+        SetupStepItem(
+            stepNumber = "4",
+            title = "Display Over Other Apps (Floating Orb)",
+            subtitle = if (hasOverlayPermission) "Overlay permission granted! The floating Siri orb can appear anywhere over any app." else "Allow Echo to display a draggable floating orb on top of games, browsers, and other apps.",
+            buttonLabel = if (hasOverlayPermission) "Overlay Access Granted" else "Grant Display Over Apps",
+            icon = Icons.Default.PhoneAndroid,
+            buttonColor = if (hasOverlayPermission) EmeraldGlow else VividViolet,
+            onClick = onRequestOverlayPermission,
+            isCompleted = hasOverlayPermission
+        )
+
+        // Step 5: Summon Anywhere (Notification & Quick Tile)
         GlassmorphicCard(
             borderColor = ElectricBlue.copy(alpha = 0.4f),
             backgroundColor = DarkNebulaSurface.copy(alpha = 0.8f)
@@ -193,14 +207,14 @@ fun RedmiSetupGuide(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "4",
+                            text = "5",
                             fontWeight = FontWeight.Bold,
                             color = ElectricBlue,
                             fontSize = 13.sp
                         )
                     }
                     Text(
-                        text = "Summon Popup From Any App",
+                        text = "More Ways to Summon Echo Anywhere",
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary,
                         fontSize = 14.sp
@@ -209,7 +223,7 @@ fun RedmiSetupGuide(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "• Quick Settings Tile: Swipe down from the top of your screen, edit tiles, and add 'Echo Assistant' for 1-tap popup anywhere.\n• Ongoing Notification: Keep quick voice access and flashlight toggles directly in your status bar.\n• Power Button: Hold power for 0.5s to trigger the Siri circle overlay instantly.",
+                    text = "• Floating Echo Orb: A glowing, draggable Siri orb that stays visible over other apps. Tap to instantly talk.\n• Quick Settings Tile: Swipe down from the top of your screen, edit tiles, and add 'Echo Assistant' for 1-tap popup anywhere.\n• Power Button: Hold power for 0.5s to trigger the Siri circle overlay instantly.",
                     color = TextSecondary,
                     fontSize = 12.sp,
                     lineHeight = 18.sp

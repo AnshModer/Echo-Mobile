@@ -52,6 +52,8 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -146,6 +148,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+            if (preferences.isFloatingBubbleEnabled) {
+                EchoFloatingBubbleService.start(this)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -172,6 +184,13 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Start floating orb overlay if enabled
+        if (preferences.isFloatingBubbleEnabled) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+                EchoFloatingBubbleService.start(this)
+            }
+        }
+
         setContent {
             MyApplicationTheme {
                 MainAssistantDashboard(
@@ -181,6 +200,9 @@ class MainActivity : ComponentActivity() {
                     preferences = preferences,
                     onRequestMicPermission = {
                         micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                    onRequestOverlayPermission = {
+                        requestOverlayPermission()
                     },
                     onExecuteQuery = { query ->
                         executeCommand(query)
@@ -192,6 +214,27 @@ class MainActivity : ComponentActivity() {
                         startActivity(intent)
                     }
                 )
+            }
+        }
+    }
+
+    private fun requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName")
+            )
+            overlayPermissionLauncher.launch(intent)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (preferences.isFloatingBubbleEnabled) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+                if (!EchoFloatingBubbleService.isRunning) {
+                    EchoFloatingBubbleService.start(this)
+                }
             }
         }
     }
@@ -220,6 +263,7 @@ fun MainAssistantDashboard(
     database: EchoDatabase,
     preferences: AssistantPreferences,
     onRequestMicPermission: () -> Unit,
+    onRequestOverlayPermission: () -> Unit,
     onExecuteQuery: (String) -> Unit,
     onOpenAssistantOverlay: () -> Unit
 ) {
@@ -245,6 +289,8 @@ fun MainAssistantDashboard(
         context,
         Manifest.permission.RECORD_AUDIO
     ) == PackageManager.PERMISSION_GRANTED
+
+    val hasOverlayPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
     val quickActionChips = listOf(
         Pair("Calculate 25 * 4", Icons.Default.Calculate),
@@ -576,20 +622,113 @@ fun MainAssistantDashboard(
                 )
             }
 
-            // Section 2: Redmi Note 12 Default Assistant Setup Guide
+            // Section 2: Floating Orb & Redmi Assistant Setup
             item {
                 Text(
-                    text = "Assistant Shortcut & Settings",
+                    text = "Floating Orb & System Shortcuts",
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
                     fontSize = 16.sp
                 )
             }
 
+            // Dedicated System Floating Orb Card
+            item {
+                var isOrbActive by remember { mutableStateOf(preferences.isFloatingBubbleEnabled) }
+                GlassmorphicCard(
+                    borderColor = if (isOrbActive) VividViolet.copy(alpha = 0.6f) else NeonCyan.copy(alpha = 0.3f),
+                    backgroundColor = DarkNebulaSurface.copy(alpha = 0.95f)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    NeonCyan,
+                                                    VividViolet
+                                                )
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Mic,
+                                        contentDescription = "Floating Orb",
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = "System Floating Orb Overlay",
+                                        fontWeight = FontWeight.Bold,
+                                        color = TextPrimary,
+                                        fontSize = 15.sp
+                                    )
+                                    Text(
+                                        text = if (isOrbActive) "Active on screen • Drag & tap to speak" else "Stays visible over games & other apps",
+                                        color = if (isOrbActive) NeonCyan else TextSecondary,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+
+                            Switch(
+                                checked = isOrbActive,
+                                onCheckedChange = { enable ->
+                                    if (enable && !hasOverlayPermission) {
+                                        onRequestOverlayPermission()
+                                    } else {
+                                        isOrbActive = enable
+                                        preferences.isFloatingBubbleEnabled = enable
+                                        if (enable) {
+                                            EchoFloatingBubbleService.start(context)
+                                        } else {
+                                            EchoFloatingBubbleService.stop(context)
+                                        }
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.Black,
+                                    checkedTrackColor = VividViolet
+                                )
+                            )
+                        }
+
+                        if (!hasOverlayPermission) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = onRequestOverlayPermission,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = VividViolet),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Grant 'Display Over Other Apps' Permission", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
             item {
                 RedmiSetupGuide(
                     hasMicPermission = hasMicPermission,
+                    hasOverlayPermission = hasOverlayPermission,
                     onRequestMicPermission = onRequestMicPermission,
+                    onRequestOverlayPermission = onRequestOverlayPermission,
                     onOpenDefaultAssistantSettings = {
                         deviceController.openDefaultAssistantSettings()
                     },
@@ -730,23 +869,19 @@ fun MainAssistantDashboard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Floating Assist Bubble", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Floating Assist Orb", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         Text("Glowing floating orb on screen over other apps", color = TextSecondary, fontSize = 12.sp)
                     }
                     var bubbleEnabled by remember { mutableStateOf(preferences.isFloatingBubbleEnabled) }
                     Switch(
                         checked = bubbleEnabled,
-                        onCheckedChange = {
-                            if (it && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
-                                val intent = Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:${context.packageName}")
-                                )
-                                context.startActivity(intent)
+                        onCheckedChange = { enable ->
+                            if (enable && !hasOverlayPermission) {
+                                onRequestOverlayPermission()
                             } else {
-                                bubbleEnabled = it
-                                preferences.isFloatingBubbleEnabled = it
-                                if (it) {
+                                bubbleEnabled = enable
+                                preferences.isFloatingBubbleEnabled = enable
+                                if (enable) {
                                     EchoFloatingBubbleService.start(context)
                                 } else {
                                     EchoFloatingBubbleService.stop(context)
