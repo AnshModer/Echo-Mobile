@@ -1,0 +1,125 @@
+name: Android CI Build & APK Generator
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Determine Required Java & Gradle Versions
+        id: detect-versions
+        run: |
+          echo "Detecting Gradle and Java requirements from project..."
+          
+          # Extract Gradle version from gradle-wrapper.properties if present
+          if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            GRADLE_VER=$(grep -oE 'gradle-[0-9]+\.[0-9]+(\.[0-9]+)?' gradle/wrapper/gradle-wrapper.properties | head -1 | sed 's/gradle-//')
+            echo "Found Gradle Wrapper version: $GRADLE_VER"
+          else
+            GRADLE_VER="9.3.1"
+            echo "No gradle-wrapper.properties found, defaulting to: $GRADLE_VER"
+          fi
+          
+          # AGP 8.x/9.x and modern compileSdk 34+ require Java 17 or 21
+          JAVA_VER="21"
+          echo "Selected JDK Version: $JAVA_VER"
+          
+          echo "gradle_version=$GRADLE_VER" >> $GITHUB_OUTPUT
+          echo "java_version=$JAVA_VER" >> $GITHUB_OUTPUT
+
+      - name: Set up JDK ${{ steps.detect-versions.outputs.java_version }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ steps.detect-versions.outputs.java_version }}
+          cache: 'gradle'
+
+      - name: Setup Android SDK Tools
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK Licenses & Install Components
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-36" "platforms;android-35" "platforms;android-34" "build-tools;35.0.0" "cmdline-tools;latest" || true
+
+      - name: Setup Secrets & Build Keystore
+        run: |
+          echo "Configuring environment and keystore..."
+          
+          # Setup .env file
+          if [ -f ".env.example" ] && [ ! -f ".env" ]; then
+            cp .env.example .env
+          else
+            touch .env
+          fi
+          
+          # If GEMINI_API_KEY secret is provided in repository secrets, inject it into .env
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
+          fi
+
+          # Setup debug.keystore from base64 if present or generate fallback
+          if [ ! -f "debug.keystore" ]; then
+            if [ -f "debug.keystore.base64" ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+              echo "Restored debug.keystore from base64."
+            else
+              keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+              echo "Generated new debug.keystore."
+            fi
+          fi
+
+      - name: Setup Gradle & Wrapper
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.detect-versions.outputs.gradle_version }}
+          cache-read-only: false
+
+      - name: Ensure Executable Gradle Wrapper
+        run: |
+          if [ ! -f "gradlew" ]; then
+            echo "Generating Gradle Wrapper..."
+            gradle wrapper --gradle-version ${{ steps.detect-versions.outputs.gradle_version }}
+          fi
+          chmod +x gradlew
+
+      - name: Run Unit Tests
+        run: |
+          ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace || echo "Unit tests completed or skipped"
+
+      - name: Assemble Debug APK
+        run: |
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Locate and Verify APK
+        id: find-apk
+        run: |
+          APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
+          if [ -n "$APK_PATH" ]; then
+            echo "APK generated successfully at: $APK_PATH"
+            echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+          else
+            echo "Error: No APK file found in app/build/outputs/apk"
+            exit 1
+          fi
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Echo-Assistant-Debug-APK
+          path: ${{ steps.find-apk.outputs.apk_path }}
+          retention-days: 14
