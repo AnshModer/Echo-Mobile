@@ -208,10 +208,11 @@ class MainActivity : ComponentActivity() {
                         executeCommand(query)
                     },
                     onOpenAssistantOverlay = {
-                        val intent = Intent(this, AssistantActivity::class.java).apply {
-                            putExtra("EXTRA_AUTO_START_LISTENING", true)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                            requestOverlayPermission()
+                        } else {
+                            EchoFloatingBubbleService.startVoiceInteraction(this)
                         }
-                        startActivity(intent)
                     }
                 )
             }

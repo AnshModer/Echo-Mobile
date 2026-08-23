@@ -1,12 +1,11 @@
 package com.example.service
 
-import android.app.PendingIntent
-import android.content.Intent
-import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import com.example.AssistantActivity
 
+/**
+ * Quick Settings Tile allowing 1-tap activation of the Echo Floating Voice Assistant Orb.
+ */
 class EchoQuickTileService : TileService() {
 
     override fun onStartListening() {
@@ -21,23 +20,7 @@ class EchoQuickTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-
-        val intent = Intent(this, AssistantActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            putExtra("EXTRA_AUTO_START_LISTENING", true)
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val pendingIntent = PendingIntent.getActivity(
-                this,
-                1001,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            startActivityAndCollapse(pendingIntent)
-        } else {
-            @Suppress("DEPRECATION")
-            startActivityAndCollapse(intent)
-        }
+        // Directly summon the Floating Orb Voice Assistant Overlay
+        EchoFloatingBubbleService.startVoiceInteraction(this)
     }
 }
