@@ -100,6 +100,7 @@ import com.example.engine.EchoNlpEngine
 import com.example.engine.VolumeInfo
 import com.example.service.EchoFloatingBubbleService
 import com.example.service.EchoNotificationHelper
+import com.example.service.EchoWakeWordService
 import com.example.ui.components.BatteryStatusCard
 import com.example.ui.components.FlashlightControlCard
 import com.example.ui.components.GlassmorphicCard
@@ -193,6 +194,13 @@ class MainActivity : ComponentActivity() {
         if (preferences.isFloatingBubbleEnabled) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
                 EchoFloatingBubbleService.start(this)
+            }
+        }
+
+        // Start Hey Echo wake word service if enabled
+        if (preferences.isWakeWordEnabled) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                EchoWakeWordService.start(this)
             }
         }
 
@@ -638,6 +646,130 @@ fun MainAssistantDashboard(
                 )
             }
 
+            // Dedicated "Hey Echo" Wake Word Detection Card
+            item {
+                var isWakeWordActive by remember { mutableStateOf(preferences.isWakeWordEnabled) }
+                GlassmorphicCard(
+                    borderColor = if (isWakeWordActive) NeonCyan.copy(alpha = 0.8f) else VividViolet.copy(alpha = 0.35f),
+                    backgroundColor = DarkNebulaSurface.copy(alpha = 0.95f),
+                    modifier = Modifier.testTag("wake_word_card")
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    if (isWakeWordActive) NeonCyan else Color(0xFF334155),
+                                                    if (isWakeWordActive) VividViolet else Color(0xFF1E293B)
+                                                )
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Mic,
+                                        contentDescription = "Hey Echo Wake Word",
+                                        tint = if (isWakeWordActive) Color.Black else TextSecondary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "\"Hey Echo\" Wake Word",
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextPrimary,
+                                            fontSize = 15.sp
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(
+                                                    if (isWakeWordActive) NeonCyan.copy(alpha = 0.2f)
+                                                    else Color(0xFF1E293B)
+                                                )
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isWakeWordActive) "HOTWORD ON" else "OFF",
+                                                color = if (isWakeWordActive) NeonCyan else TextMuted,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = if (isWakeWordActive) "Listening... Just say \"Hey Echo\" anytime" else "Say \"Hey Echo\" to trigger hands-free",
+                                        color = if (isWakeWordActive) NeonCyan else TextSecondary,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+
+                            Switch(
+                                checked = isWakeWordActive,
+                                onCheckedChange = { enable ->
+                                    if (enable && !hasMicPermission) {
+                                        onRequestMicPermission()
+                                    } else {
+                                        isWakeWordActive = enable
+                                        preferences.isWakeWordEnabled = enable
+                                        if (enable) {
+                                            EchoWakeWordService.start(context)
+                                        } else {
+                                            EchoWakeWordService.stop(context)
+                                        }
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.Black,
+                                    checkedTrackColor = NeonCyan
+                                )
+                            )
+                        }
+
+                        if (isWakeWordActive) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFF0F172A))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Supported: \"Hey Echo\", \"OK Echo\", \"Echo\"",
+                                    color = TextSecondary,
+                                    fontSize = 11.sp
+                                )
+                                Text(
+                                    text = "⚡ Instant Wake",
+                                    color = RadiantMagenta,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Dedicated System Floating Orb Card
             item {
                 var isOrbActive by remember { mutableStateOf(preferences.isFloatingBubbleEnabled) }
@@ -840,6 +972,36 @@ fun MainAssistantDashboard(
                             )
                         }
                     }
+                }
+
+                // "Hey Echo" Wake Word Detection
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("\"Hey Echo\" Wake Word", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Hands-free background voice trigger (Hey Echo, OK Echo)", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    var wakeWordEnabled by remember { mutableStateOf(preferences.isWakeWordEnabled) }
+                    Switch(
+                        checked = wakeWordEnabled,
+                        onCheckedChange = { enable ->
+                            if (enable && !hasMicPermission) {
+                                onRequestMicPermission()
+                            } else {
+                                wakeWordEnabled = enable
+                                preferences.isWakeWordEnabled = enable
+                                if (enable) {
+                                    EchoWakeWordService.start(context)
+                                } else {
+                                    EchoWakeWordService.stop(context)
+                                }
+                            }
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = NeonCyan)
+                    )
                 }
 
                 // Persistent Quick Notification Trigger

@@ -56,4 +56,12 @@ class AssistantPreferences(context: Context) {
     var isFloatingBubbleEnabled: Boolean
         get() = prefs.getBoolean("floating_bubble_enabled", false)
         set(value) = prefs.edit().putBoolean("floating_bubble_enabled", value).apply()
+
+    var isWakeWordEnabled: Boolean
+        get() = prefs.getBoolean("wake_word_enabled", false)
+        set(value) = prefs.edit().putBoolean("wake_word_enabled", value).apply()
+
+    var wakeWordPhrase: String
+        get() = prefs.getString("wake_word_phrase", "Hey Echo") ?: "Hey Echo"
+        set(value) = prefs.edit().putString("wake_word_phrase", value).apply()
 }
