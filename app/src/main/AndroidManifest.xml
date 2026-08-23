@@ -157,16 +157,6 @@
                 android:value="Floating orb assistant overlay for fast access" />
         </service>
 
-        <!-- Continuous 'Hey Echo' Wake Word Detection Service -->
-        <service
-            android:name=".service.EchoWakeWordService"
-            android:exported="false"
-            android:foregroundServiceType="microphone|specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Wake word background audio monitoring" />
-        </service>
-
     </application>
 
 </manifest>

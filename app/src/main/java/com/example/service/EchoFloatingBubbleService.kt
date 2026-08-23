@@ -51,15 +51,10 @@ class EchoFloatingBubbleService : Service() {
         const val ACTION_START = "com.example.service.ACTION_START_ORB"
         const val ACTION_STOP = "com.example.service.ACTION_STOP_ORB"
         const val ACTION_TRIGGER_VOICE_INTERACTION = "com.example.service.ACTION_TRIGGER_VOICE_INTERACTION"
-        const val ACTION_EXECUTE_QUERY = "com.example.service.ACTION_EXECUTE_QUERY"
-        const val EXTRA_QUERY = "extra_query"
         const val NOTIFICATION_CHANNEL_ID = "echo_floating_assistant_channel"
         const val NOTIFICATION_ID = 2002
 
         var isRunning = false
-            private set
-
-        var isInteractionActive = false
             private set
 
         fun start(context: Context) {
@@ -76,18 +71,6 @@ class EchoFloatingBubbleService : Service() {
         fun startVoiceInteraction(context: Context) {
             val intent = Intent(context, EchoFloatingBubbleService::class.java).apply {
                 action = ACTION_TRIGGER_VOICE_INTERACTION
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
-        }
-
-        fun startVoiceInteractionWithQuery(context: Context, query: String) {
-            val intent = Intent(context, EchoFloatingBubbleService::class.java).apply {
-                action = ACTION_EXECUTE_QUERY
-                putExtra(EXTRA_QUERY, query)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -150,14 +133,6 @@ class EchoFloatingBubbleService : Service() {
             }
             ACTION_TRIGGER_VOICE_INTERACTION -> {
                 showOverlayAndStartListening()
-            }
-            ACTION_EXECUTE_QUERY -> {
-                val query = intent.getStringExtra(EXTRA_QUERY) ?: ""
-                if (query.isNotBlank()) {
-                    showOverlayAndExecuteQuery(query)
-                } else {
-                    showOverlayAndStartListening()
-                }
             }
             ACTION_START -> {
                 if (preferences.isFloatingBubbleEnabled) {
@@ -223,7 +198,6 @@ class EchoFloatingBubbleService : Service() {
     }
 
     private fun showOverlayAndStartListening() {
-        isInteractionActive = true
         cancelAutoDismiss()
 
         val hasMicPermission = ContextCompat.checkSelfPermission(
@@ -249,14 +223,6 @@ class EchoFloatingBubbleService : Service() {
         voiceManager.stopSpeaking()
         overlayLayout?.updateState(AssistantState.LISTENING, "Listening... Speak your request")
         voiceManager.startListening()
-    }
-
-    private fun showOverlayAndExecuteQuery(query: String) {
-        isInteractionActive = true
-        cancelAutoDismiss()
-        updateForegroundState(isMicrophoneActive = false)
-        ensureOverlayAttached(startListeningImmediately = false)
-        handleSpokenCommand(query)
     }
 
     private fun ensureOverlayAttached(startListeningImmediately: Boolean) {
@@ -411,7 +377,6 @@ class EchoFloatingBubbleService : Service() {
     }
 
     private fun dismissInteraction() {
-        isInteractionActive = false
         voiceManager.stopSpeaking()
         voiceManager.stopListening()
 

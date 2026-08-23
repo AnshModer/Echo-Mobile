@@ -36,9 +36,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MusicNote
@@ -49,7 +52,11 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -100,7 +107,6 @@ import com.example.engine.EchoNlpEngine
 import com.example.engine.VolumeInfo
 import com.example.service.EchoFloatingBubbleService
 import com.example.service.EchoNotificationHelper
-import com.example.service.EchoWakeWordService
 import com.example.ui.components.BatteryStatusCard
 import com.example.ui.components.FlashlightControlCard
 import com.example.ui.components.GlassmorphicCard
@@ -194,13 +200,6 @@ class MainActivity : ComponentActivity() {
         if (preferences.isFloatingBubbleEnabled) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
                 EchoFloatingBubbleService.start(this)
-            }
-        }
-
-        // Start Hey Echo wake word service if enabled
-        if (preferences.isWakeWordEnabled) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                EchoWakeWordService.start(this)
             }
         }
 
@@ -307,15 +306,17 @@ fun MainAssistantDashboard(
     val hasOverlayPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
     val quickActionChips = listOf(
+        Pair("Explain Quantum Physics", Icons.Default.AutoAwesome),
+        Pair("Tell me a fun science fact", Icons.Default.AutoAwesome),
         Pair("Calculate 25 * 4", Icons.Default.Calculate),
-        Pair("Play Music", Icons.Default.MusicNote),
-        Pair("Search YouTube", Icons.Default.PlayArrow),
         Pair("Turn on Flashlight", Icons.Default.FlashlightOn),
+        Pair("Play Music", Icons.Default.MusicNote),
         Pair("Volume to 80%", Icons.Default.VolumeUp),
-        Pair("Battery Status", Icons.Default.Refresh),
+        Pair("Search YouTube", Icons.Default.PlayArrow),
         Pair("Set 5m Timer", Icons.Default.Timer),
         Pair("Take Note", Icons.Default.Chat),
-        Pair("Tell me a Joke", Icons.Default.Mic)
+        Pair("Tell me a Joke", Icons.Default.AutoAwesome),
+        Pair("Battery Status", Icons.Default.Refresh)
     )
 
     Scaffold(
@@ -646,130 +647,6 @@ fun MainAssistantDashboard(
                 )
             }
 
-            // Dedicated "Hey Echo" Wake Word Detection Card
-            item {
-                var isWakeWordActive by remember { mutableStateOf(preferences.isWakeWordEnabled) }
-                GlassmorphicCard(
-                    borderColor = if (isWakeWordActive) NeonCyan.copy(alpha = 0.8f) else VividViolet.copy(alpha = 0.35f),
-                    backgroundColor = DarkNebulaSurface.copy(alpha = 0.95f),
-                    modifier = Modifier.testTag("wake_word_card")
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            Brush.linearGradient(
-                                                listOf(
-                                                    if (isWakeWordActive) NeonCyan else Color(0xFF334155),
-                                                    if (isWakeWordActive) VividViolet else Color(0xFF1E293B)
-                                                )
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Mic,
-                                        contentDescription = "Hey Echo Wake Word",
-                                        tint = if (isWakeWordActive) Color.Black else TextSecondary,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                                Column {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = "\"Hey Echo\" Wake Word",
-                                            fontWeight = FontWeight.Bold,
-                                            color = TextPrimary,
-                                            fontSize = 15.sp
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(
-                                                    if (isWakeWordActive) NeonCyan.copy(alpha = 0.2f)
-                                                    else Color(0xFF1E293B)
-                                                )
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        ) {
-                                            Text(
-                                                text = if (isWakeWordActive) "HOTWORD ON" else "OFF",
-                                                color = if (isWakeWordActive) NeonCyan else TextMuted,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.ExtraBold
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = if (isWakeWordActive) "Listening... Just say \"Hey Echo\" anytime" else "Say \"Hey Echo\" to trigger hands-free",
-                                        color = if (isWakeWordActive) NeonCyan else TextSecondary,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-
-                            Switch(
-                                checked = isWakeWordActive,
-                                onCheckedChange = { enable ->
-                                    if (enable && !hasMicPermission) {
-                                        onRequestMicPermission()
-                                    } else {
-                                        isWakeWordActive = enable
-                                        preferences.isWakeWordEnabled = enable
-                                        if (enable) {
-                                            EchoWakeWordService.start(context)
-                                        } else {
-                                            EchoWakeWordService.stop(context)
-                                        }
-                                    }
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.Black,
-                                    checkedTrackColor = NeonCyan
-                                )
-                            )
-                        }
-
-                        if (isWakeWordActive) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Color(0xFF0F172A))
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "Supported: \"Hey Echo\", \"OK Echo\", \"Echo\"",
-                                    color = TextSecondary,
-                                    fontSize = 11.sp
-                                )
-                                Text(
-                                    text = "⚡ Instant Wake",
-                                    color = RadiantMagenta,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
             // Dedicated System Floating Orb Card
             item {
                 var isOrbActive by remember { mutableStateOf(preferences.isFloatingBubbleEnabled) }
@@ -974,36 +851,6 @@ fun MainAssistantDashboard(
                     }
                 }
 
-                // "Hey Echo" Wake Word Detection
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("\"Hey Echo\" Wake Word", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Text("Hands-free background voice trigger (Hey Echo, OK Echo)", color = TextSecondary, fontSize = 12.sp)
-                    }
-                    var wakeWordEnabled by remember { mutableStateOf(preferences.isWakeWordEnabled) }
-                    Switch(
-                        checked = wakeWordEnabled,
-                        onCheckedChange = { enable ->
-                            if (enable && !hasMicPermission) {
-                                onRequestMicPermission()
-                            } else {
-                                wakeWordEnabled = enable
-                                preferences.isWakeWordEnabled = enable
-                                if (enable) {
-                                    EchoWakeWordService.start(context)
-                                } else {
-                                    EchoWakeWordService.stop(context)
-                                }
-                            }
-                        },
-                        colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = NeonCyan)
-                    )
-                }
-
                 // Persistent Quick Notification Trigger
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1121,6 +968,133 @@ fun MainAssistantDashboard(
                         },
                         colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = SolarAmber)
                     )
+                }
+
+                // Gemini 3.5 Flash AI Intelligence Configuration
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF131A2A))
+                        .border(1.dp, Color(0xFF25334E), RoundedCornerShape(16.dp))
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "Gemini AI",
+                                tint = NeonCyan,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Gemini 3.5 Flash Intelligence",
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                fontSize = 14.sp
+                            )
+                        }
+
+                        val hasKey = preferences.hasValidGeminiApiKey()
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (hasKey) EmeraldGlow.copy(alpha = 0.2f) else SolarAmber.copy(alpha = 0.2f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = if (hasKey) "ACTIVE & TALKING" else "READY",
+                                color = if (hasKey) EmeraldGlow else SolarAmber,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Powered by Google Gemini 3.5 Flash for natural conversations, answering questions, giving advice, and spoken voice intelligence. Auto-configured via AI Studio Secrets.",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+
+                    var apiKeyInput by remember { mutableStateOf(preferences.customGeminiApiKey) }
+                    var showKeyPassword by remember { mutableStateOf(false) }
+                    var keySavedConfirmation by remember { mutableStateOf(false) }
+
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = {
+                            apiKeyInput = it
+                            keySavedConfirmation = false
+                        },
+                        label = { Text("Custom Gemini API Key (Optional)", fontSize = 12.sp) },
+                        placeholder = { Text("Enter key or leave blank to use build secret", fontSize = 11.sp, color = TextMuted) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("gemini_api_key_input"),
+                        singleLine = true,
+                        visualTransformation = if (showKeyPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        leadingIcon = {
+                            Icon(Icons.Default.Key, contentDescription = "API Key", tint = NeonCyan, modifier = Modifier.size(18.dp))
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { showKeyPassword = !showKeyPassword }) {
+                                Icon(
+                                    if (showKeyPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = "Toggle Key Visibility",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = NeonCyan,
+                            unfocusedBorderColor = Color(0xFF25334E),
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedLabelColor = NeonCyan,
+                            unfocusedLabelColor = TextSecondary
+                        )
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                preferences.customGeminiApiKey = apiKeyInput
+                                keySavedConfirmation = true
+                            },
+                            modifier = Modifier.weight(1f).testTag("save_api_key_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = VividViolet),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (keySavedConfirmation) "Saved!" else "Save Key", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        if (apiKeyInput.isNotBlank()) {
+                            Button(
+                                onClick = {
+                                    apiKeyInput = ""
+                                    preferences.customGeminiApiKey = ""
+                                    keySavedConfirmation = false
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("Clear", fontSize = 12.sp, color = TextMuted)
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))

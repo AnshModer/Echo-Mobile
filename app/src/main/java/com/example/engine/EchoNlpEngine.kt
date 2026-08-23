@@ -34,7 +34,7 @@ sealed class ActionResult(
 class EchoNlpEngine(
     private val context: Context,
     private val deviceController: DeviceController,
-    private val geminiClient: GeminiClient = GeminiClient()
+    private val geminiClient: GeminiClient = GeminiClient(context)
 ) {
     private val database = EchoDatabase.getDatabase(context)
 

@@ -57,11 +57,23 @@ class AssistantPreferences(context: Context) {
         get() = prefs.getBoolean("floating_bubble_enabled", false)
         set(value) = prefs.edit().putBoolean("floating_bubble_enabled", value).apply()
 
-    var isWakeWordEnabled: Boolean
-        get() = prefs.getBoolean("wake_word_enabled", false)
-        set(value) = prefs.edit().putBoolean("wake_word_enabled", value).apply()
+    var customGeminiApiKey: String
+        get() = prefs.getString("custom_gemini_api_key", "") ?: ""
+        set(value) = prefs.edit().putString("custom_gemini_api_key", value.trim()).apply()
 
-    var wakeWordPhrase: String
-        get() = prefs.getString("wake_word_phrase", "Hey Echo") ?: "Hey Echo"
-        set(value) = prefs.edit().putString("wake_word_phrase", value).apply()
+    fun getActiveGeminiApiKey(): String {
+        val custom = customGeminiApiKey.trim()
+        if (custom.isNotBlank()) return custom
+
+        return try {
+            val buildKey = com.example.BuildConfig.GEMINI_API_KEY.trim()
+            if (buildKey.isNotBlank() && buildKey != "MY_GEMINI_API_KEY") buildKey else ""
+        } catch (e: Throwable) {
+            ""
+        }
+    }
+
+    fun hasValidGeminiApiKey(): Boolean {
+        return getActiveGeminiApiKey().isNotBlank()
+    }
 }
