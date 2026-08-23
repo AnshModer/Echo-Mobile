@@ -1,5 +1,6 @@
 package com.example.service
 
+import android.Manifest
 import android.animation.ValueAnimator
 import android.app.Notification
 import android.app.NotificationChannel
@@ -7,6 +8,8 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.os.Build
@@ -19,6 +22,8 @@ import android.view.View
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import com.example.R
 import com.example.data.local.AssistantPreferences
 import com.example.engine.ActionResult
@@ -113,7 +118,7 @@ class EchoFloatingBubbleService : Service() {
         }
 
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildForegroundNotification())
+        updateForegroundState(isMicrophoneActive = false)
 
         observeVoiceState()
     }
@@ -141,6 +146,40 @@ class EchoFloatingBubbleService : Service() {
         return START_STICKY
     }
 
+    private fun updateForegroundState(isMicrophoneActive: Boolean) {
+        val hasMicPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val notification = buildForegroundNotification()
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val serviceType = if (isMicrophoneActive && hasMicPermission) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                } else {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                }
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, serviceType)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val serviceType = if (isMicrophoneActive && hasMicPermission) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                } else {
+                    0
+                }
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, serviceType)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            try {
+                startForeground(NOTIFICATION_ID, notification)
+            } catch (ignored: Exception) {}
+        }
+    }
+
     private fun observeVoiceState() {
         serviceScope.launch {
             voiceManager.rmsAudioLevel.collectLatest { level ->
@@ -160,6 +199,26 @@ class EchoFloatingBubbleService : Service() {
 
     private fun showOverlayAndStartListening() {
         cancelAutoDismiss()
+
+        val hasMicPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hasMicPermission) {
+            updateForegroundState(isMicrophoneActive = false)
+            ensureOverlayAttached(startListeningImmediately = false)
+            voiceManager.stopSpeaking()
+            overlayLayout?.updateState(
+                AssistantState.ERROR,
+                "Microphone permission required. Please open Echo once to allow microphone access."
+            )
+            scheduleAutoDismiss(delayMillis = 4500L)
+            return
+        }
+
+        // Ensure foreground service is designated with MICROPHONE foreground type before starting audio capture
+        updateForegroundState(isMicrophoneActive = true)
         ensureOverlayAttached(startListeningImmediately = true)
         voiceManager.stopSpeaking()
         overlayLayout?.updateState(AssistantState.LISTENING, "Listening... Speak your request")
@@ -267,6 +326,7 @@ class EchoFloatingBubbleService : Service() {
 
     private fun handleSpokenCommand(query: String) {
         cancelAutoDismiss()
+        updateForegroundState(isMicrophoneActive = false)
         voiceManager.setState(AssistantState.THINKING)
         overlayLayout?.updateState(AssistantState.THINKING, "\"$query\"")
 

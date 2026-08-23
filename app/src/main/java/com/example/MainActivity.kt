@@ -171,6 +171,11 @@ class MainActivity : ComponentActivity() {
             executeCommand(spokenQuery)
         }
 
+        // Check & request microphone permission on initial launch so background/long-press services have access
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+
         // Show persistent quick-trigger notification if enabled
         if (preferences.isQuickNotificationEnabled) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

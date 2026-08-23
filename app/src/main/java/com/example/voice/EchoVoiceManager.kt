@@ -1,7 +1,9 @@
 package com.example.voice
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -13,6 +15,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import androidx.core.content.ContextCompat
 import com.example.data.local.AssistantPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -81,6 +84,13 @@ class EchoVoiceManager(
                 // Stop any speaking first
                 stopSpeaking()
                 performHapticFeedback()
+
+                // Verify microphone permission before initializing SpeechRecognizer
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    _liveTranscript.value = "Microphone permission required. Please open Echo once to allow microphone access."
+                    _assistantState.value = AssistantState.ERROR
+                    return@post
+                }
 
                 _liveTranscript.value = "Listening... Speak your request"
                 _assistantState.value = AssistantState.LISTENING
