@@ -358,6 +358,117 @@ class DeviceController(private val context: Context) {
     fun openBatterySettings() = openSettingsScreen(Settings.ACTION_BATTERY_SAVER_SETTINGS)
     fun openDateSettings() = openSettingsScreen(Settings.ACTION_DATE_SETTINGS)
 
+    // --- YOUTUBE & MUSIC ---
+    fun searchYouTube(query: String): Pair<Boolean, String> {
+        return try {
+            val appIntent = Intent(Intent.ACTION_SEARCH).apply {
+                setPackage("com.google.android.youtube")
+                putExtra("query", query)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(appIntent)
+            Pair(true, "Searching YouTube for \"$query\"")
+        } catch (e: Exception) {
+            // Fallback to browser YouTube URL
+            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=${Uri.encode(query)}")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(webIntent)
+            Pair(true, "Opening YouTube for \"$query\"")
+        }
+    }
+
+    fun playOnYouTube(query: String): Pair<Boolean, String> {
+        return try {
+            val appIntent = Intent(Intent.ACTION_SEARCH).apply {
+                setPackage("com.google.android.youtube")
+                putExtra("query", query)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(appIntent)
+            Pair(true, "Playing \"$query\" on YouTube")
+        } catch (e: Exception) {
+            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=${Uri.encode(query)}")).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(webIntent)
+            Pair(true, "Searching and playing \"$query\" on YouTube")
+        }
+    }
+
+    fun playMusic(query: String? = null): Pair<Boolean, String> {
+        if (!query.isNullOrBlank()) {
+            // Check if user specifically requested Spotify
+            return playOnSpotify(query)
+        }
+        // Try resuming media playback
+        val res = sendMediaCommand(KeyEvent.KEYCODE_MEDIA_PLAY)
+        // Also try opening music app if no active session
+        try {
+            val pm = context.packageManager
+            val musicApps = listOf("com.spotify.music", "com.google.android.apps.youtube.music", "com.miui.player")
+            for (pkg in musicApps) {
+                val launchIntent = pm.getLaunchIntentForPackage(pkg)
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(launchIntent)
+                    return Pair(true, "Playing music...")
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return Pair(true, "Resuming music playback.")
+    }
+
+    fun playOnSpotify(query: String): Pair<Boolean, String> {
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("spotify:search:${Uri.encode(query)}")).apply {
+                setPackage("com.spotify.music")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            Pair(true, "Playing \"$query\" on Spotify")
+        } catch (e: Exception) {
+            // If spotify isn't installed, search on YouTube
+            searchYouTube(query)
+        }
+    }
+
+    fun pauseMusic(): Pair<Boolean, String> {
+        sendMediaCommand(KeyEvent.KEYCODE_MEDIA_PAUSE)
+        return Pair(true, "Music paused.")
+    }
+
+    fun nextTrack(): Pair<Boolean, String> {
+        sendMediaCommand(KeyEvent.KEYCODE_MEDIA_NEXT)
+        return Pair(true, "Playing next track.")
+    }
+
+    fun previousTrack(): Pair<Boolean, String> {
+        sendMediaCommand(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+        return Pair(true, "Playing previous track.")
+    }
+
+    fun openCalculator(): Pair<Boolean, String> {
+        val calcPackages = listOf(
+            "com.google.android.calculator",
+            "com.miui.calculator",
+            "com.android.calculator2",
+            "com.sec.android.app.popupcalculator"
+        )
+        val pm = context.packageManager
+        for (pkg in calcPackages) {
+            val intent = pm.getLaunchIntentForPackage(pkg)
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                return Pair(true, "Opening Calculator")
+            }
+        }
+        return Pair(false, "Calculator app not found.")
+    }
+
     // --- MEDIA CONTROLS ---
     fun sendMediaCommand(keyCode: Int): String {
         return try {

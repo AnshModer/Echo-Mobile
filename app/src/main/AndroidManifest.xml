@@ -22,6 +22,12 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Overlay & Background Triggers (Pop-up assistant anywhere) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- Alarms, Timers, Phone Calls & SMS -->
     <uses-permission android:name="android.permission.SET_ALARM" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
@@ -121,6 +127,28 @@
                 android:name="android.speech"
                 android:resource="@xml/recognition_service" />
         </service>
+
+        <!-- Quick Settings Tile for instant Assistant Popup -->
+        <service
+            android:name=".service.EchoQuickTileService"
+            android:icon="@drawable/ic_echo_tile"
+            android:label="Echo Assistant"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Persistent Quick-Trigger Notification Service -->
+        <service
+            android:name=".service.EchoTriggerNotificationService"
+            android:exported="false" />
+
+        <!-- Floating Screen Bubble Overlay Service -->
+        <service
+            android:name=".service.EchoFloatingBubbleService"
+            android:exported="false" />
 
     </application>
 

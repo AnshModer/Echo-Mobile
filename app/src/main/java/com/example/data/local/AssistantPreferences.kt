@@ -48,4 +48,12 @@ class AssistantPreferences(context: Context) {
     var keepScreenOnDuringAssistant: Boolean
         get() = prefs.getBoolean("keep_screen_on", true)
         set(value) = prefs.edit().putBoolean("keep_screen_on", value).apply()
+
+    var isQuickNotificationEnabled: Boolean
+        get() = prefs.getBoolean("quick_notification_enabled", true)
+        set(value) = prefs.edit().putBoolean("quick_notification_enabled", value).apply()
+
+    var isFloatingBubbleEnabled: Boolean
+        get() = prefs.getBoolean("floating_bubble_enabled", false)
+        set(value) = prefs.edit().putBoolean("floating_bubble_enabled", value).apply()
 }

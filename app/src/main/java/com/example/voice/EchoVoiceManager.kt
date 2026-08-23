@@ -3,6 +3,8 @@ package com.example.voice
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -30,6 +32,7 @@ class EchoVoiceManager(
     private val onSpeechRecognized: (String) -> Unit
 ) {
     private val preferences = AssistantPreferences(context)
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var speechRecognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private var isTtsInitialized = false
@@ -73,101 +76,132 @@ class EchoVoiceManager(
     }
 
     fun startListening() {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            _assistantState.value = AssistantState.ERROR
-            return
-        }
+        mainHandler.post {
+            try {
+                // Stop any speaking first
+                stopSpeaking()
+                performHapticFeedback()
 
-        // Stop any current speaking
-        stopSpeaking()
+                _liveTranscript.value = "Listening... Speak your request"
+                _assistantState.value = AssistantState.LISTENING
+                _rmsAudioLevel.value = 0.2f
 
-        performHapticFeedback()
-
-        _liveTranscript.value = ""
-        _assistantState.value = AssistantState.LISTENING
-        _rmsAudioLevel.value = 0f
-
-        speechRecognizer?.destroy()
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-            setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {
-                    _assistantState.value = AssistantState.LISTENING
-                }
-
-                override fun onBeginningOfSpeech() {
-                    _assistantState.value = AssistantState.LISTENING
-                }
-
-                override fun onRmsChanged(rmsdB: Float) {
-                    // Normalize RMS dB (usually -2 to 10) to 0.0 - 1.0
-                    val normalized = ((rmsdB + 2f) / 12f).coerceIn(0f, 1.5f)
-                    _rmsAudioLevel.value = normalized
-                }
-
-                override fun onBufferReceived(buffer: ByteArray?) {}
-
-                override fun onEndOfSpeech() {
-                    _assistantState.value = AssistantState.THINKING
-                    _rmsAudioLevel.value = 0f
-                }
-
-                override fun onError(error: Int) {
-                    _rmsAudioLevel.value = 0f
-                    // If no speech recognized, return to IDLE quietly
-                    if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                        _assistantState.value = AssistantState.IDLE
-                    } else {
-                        _assistantState.value = AssistantState.IDLE
+                if (speechRecognizer != null) {
+                    try {
+                        speechRecognizer?.cancel()
+                        speechRecognizer?.destroy()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
+                    speechRecognizer = null
                 }
 
-                override fun onResults(results: Bundle?) {
-                    _rmsAudioLevel.value = 0f
-                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    val text = matches?.firstOrNull() ?: ""
-                    if (text.isNotBlank()) {
-                        _liveTranscript.value = text
-                        _assistantState.value = AssistantState.THINKING
-                        performHapticFeedback()
-                        onSpeechRecognized(text)
-                    } else {
-                        _assistantState.value = AssistantState.IDLE
-                    }
+                if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+                    _liveTranscript.value = "Speech recognition service not ready on this device. You can also type commands."
+                    _assistantState.value = AssistantState.ERROR
+                    return@post
                 }
 
-                override fun onPartialResults(partialResults: Bundle?) {
-                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    val text = matches?.firstOrNull() ?: ""
-                    if (text.isNotBlank()) {
-                        _liveTranscript.value = text
-                    }
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
+                    setRecognitionListener(object : RecognitionListener {
+                        override fun onReadyForSpeech(params: Bundle?) {
+                            _assistantState.value = AssistantState.LISTENING
+                            _liveTranscript.value = "Listening... (e.g. \"Calculate 25 * 4\", \"Play music\", \"Turn on flashlight\")"
+                        }
+
+                        override fun onBeginningOfSpeech() {
+                            _assistantState.value = AssistantState.LISTENING
+                        }
+
+                        override fun onRmsChanged(rmsdB: Float) {
+                            // Normalize RMS dB (usually -2 to 10) to 0.1 - 1.5
+                            val normalized = ((rmsdB + 2f) / 10f).coerceIn(0.1f, 1.5f)
+                            _rmsAudioLevel.value = normalized
+                        }
+
+                        override fun onBufferReceived(buffer: ByteArray?) {}
+
+                        override fun onEndOfSpeech() {
+                            _assistantState.value = AssistantState.THINKING
+                            _rmsAudioLevel.value = 0f
+                        }
+
+                        override fun onError(error: Int) {
+                            _rmsAudioLevel.value = 0f
+                            val errorMsg = when (error) {
+                                SpeechRecognizer.ERROR_NO_MATCH -> "Didn't catch any speech. Tap orb to retry."
+                                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Listening timed out. Tap orb to speak."
+                                SpeechRecognizer.ERROR_AUDIO -> "Microphone audio error. Check mic permission."
+                                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission required."
+                                SpeechRecognizer.ERROR_NETWORK -> "Network issue for voice recognition."
+                                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Voice service network timeout."
+                                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Mic busy. Tap to restart."
+                                SpeechRecognizer.ERROR_CLIENT -> "Voice service ready. Tap to speak."
+                                else -> "Mic ready. Tap orb to speak again."
+                            }
+                            _liveTranscript.value = errorMsg
+                            _assistantState.value = if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                                AssistantState.IDLE
+                            } else {
+                                AssistantState.ERROR
+                            }
+                        }
+
+                        override fun onResults(results: Bundle?) {
+                            _rmsAudioLevel.value = 0f
+                            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            val text = matches?.firstOrNull()?.trim() ?: ""
+                            if (text.isNotBlank()) {
+                                _liveTranscript.value = "\"$text\""
+                                _assistantState.value = AssistantState.THINKING
+                                performHapticFeedback()
+                                onSpeechRecognized(text)
+                            } else {
+                                _liveTranscript.value = "Didn't hear any words. Tap orb to retry."
+                                _assistantState.value = AssistantState.IDLE
+                            }
+                        }
+
+                        override fun onPartialResults(partialResults: Bundle?) {
+                            val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            val text = matches?.firstOrNull()?.trim() ?: ""
+                            if (text.isNotBlank()) {
+                                _liveTranscript.value = "\"$text...\""
+                            }
+                        }
+
+                        override fun onEvent(eventType: Int, params: Bundle?) {}
+                    })
                 }
 
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
-        }
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                }
 
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-        }
-
-        try {
-            speechRecognizer?.startListening(intent)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            _assistantState.value = AssistantState.ERROR
+                speechRecognizer?.startListening(intent)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _liveTranscript.value = "Speech recognition start failed: ${e.message}"
+                _assistantState.value = AssistantState.ERROR
+            }
         }
     }
 
     fun stopListening() {
-        try {
-            speechRecognizer?.stopListening()
-        } catch (e: Exception) {
-            e.printStackTrace()
+        mainHandler.post {
+            try {
+                speechRecognizer?.stopListening()
+                _assistantState.value = AssistantState.IDLE
+                _rmsAudioLevel.value = 0f
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -227,6 +261,7 @@ class EchoVoiceManager(
 
     fun destroy() {
         try {
+            speechRecognizer?.cancel()
             speechRecognizer?.destroy()
             speechRecognizer = null
             tts?.stop()
@@ -237,3 +272,4 @@ class EchoVoiceManager(
         }
     }
 }
+

@@ -173,6 +173,49 @@ fun RedmiSetupGuide(
             onClick = onRequestMicPermission,
             isCompleted = hasMicPermission
         )
+
+        // Step 4: Summon Anywhere (Notification & Quick Tile)
+        GlassmorphicCard(
+            borderColor = ElectricBlue.copy(alpha = 0.4f),
+            backgroundColor = DarkNebulaSurface.copy(alpha = 0.8f)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(ElectricBlue.copy(alpha = 0.2f))
+                            .border(1.dp, ElectricBlue, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "4",
+                            fontWeight = FontWeight.Bold,
+                            color = ElectricBlue,
+                            fontSize = 13.sp
+                        )
+                    }
+                    Text(
+                        text = "Summon Popup From Any App",
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        fontSize = 14.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "• Quick Settings Tile: Swipe down from the top of your screen, edit tiles, and add 'Echo Assistant' for 1-tap popup anywhere.\n• Ongoing Notification: Keep quick voice access and flashlight toggles directly in your status bar.\n• Power Button: Hold power for 0.5s to trigger the Siri circle overlay instantly.",
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp
+                )
+            }
+        }
     }
 }
 

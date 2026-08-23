@@ -1,6 +1,7 @@
 package com.example
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -36,10 +37,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Timer
@@ -76,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.data.local.AssistantPreferences
+import com.example.engine.ActionResult
 import com.example.engine.DeviceController
 import com.example.engine.EchoNlpEngine
 import com.example.ui.components.GlassmorphicCard
@@ -103,11 +108,16 @@ class AssistantActivity : ComponentActivity() {
     private lateinit var voiceManager: EchoVoiceManager
     private lateinit var preferences: AssistantPreferences
 
+    private var currentActionResult by mutableStateOf<ActionResult?>(null)
+
     private val requestAudioPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
             voiceManager.startListening()
+        } else {
+            voiceManager.setLiveTranscript("Microphone permission required for voice assistant. You can also type commands.")
+            voiceManager.setState(AssistantState.ERROR)
         }
     }
 
@@ -126,6 +136,7 @@ class AssistantActivity : ComponentActivity() {
             MyApplicationTheme {
                 AssistantOverlayScreen(
                     voiceManager = voiceManager,
+                    lastResult = currentActionResult,
                     onDismiss = { finish() },
                     onQuerySubmitted = { query -> processQuery(query) },
                     onToggleVoice = {
@@ -135,13 +146,20 @@ class AssistantActivity : ComponentActivity() {
             }
         }
 
-        // Auto-start listening on launch
-        if (preferences.autoListenOnLaunch) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                voiceManager.startListening()
-            } else {
-                requestAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
+        startListeningWithPermission()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        startListeningWithPermission()
+    }
+
+    private fun startListeningWithPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            voiceManager.startListening()
+        } else {
+            requestAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
@@ -149,11 +167,7 @@ class AssistantActivity : ComponentActivity() {
         if (voiceManager.assistantState.value == AssistantState.LISTENING) {
             voiceManager.stopListening()
         } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                voiceManager.startListening()
-            } else {
-                requestAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
+            startListeningWithPermission()
         }
     }
 
@@ -162,6 +176,7 @@ class AssistantActivity : ComponentActivity() {
         coroutineScope.launch {
             voiceManager.setState(AssistantState.THINKING)
             val actionResult = nlpEngine.processQuery(query)
+            currentActionResult = actionResult
             voiceManager.setLiveTranscript(actionResult.responseText)
             voiceManager.speak(actionResult.responseText)
         }
@@ -176,6 +191,7 @@ class AssistantActivity : ComponentActivity() {
 @Composable
 fun AssistantOverlayScreen(
     voiceManager: EchoVoiceManager,
+    lastResult: ActionResult? = null,
     onDismiss: () -> Unit,
     onQuerySubmitted: (String) -> Unit,
     onToggleVoice: () -> Unit
@@ -187,11 +203,13 @@ fun AssistantOverlayScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
 
     val quickCommands = listOf(
+        Pair("Calculate 25 * 4", Icons.Default.Calculate),
+        Pair("Play music", Icons.Default.MusicNote),
+        Pair("Search YouTube", Icons.Default.PlayArrow),
         Pair("Turn on Flashlight", Icons.Default.FlashlightOn),
         Pair("Set Volume 80%", Icons.Default.VolumeUp),
-        Pair("Battery level", Icons.Default.Mic),
+        Pair("Battery level", Icons.Default.GraphicEq),
         Pair("Set timer 5 min", Icons.Default.Timer),
-        Pair("Open YouTube", Icons.Default.PlayArrow),
         Pair("Tell me a joke", Icons.Default.Mic)
     )
 
@@ -218,8 +236,8 @@ fun AssistantOverlayScreen(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFF10172A).copy(alpha = 0.95f),
-                            Color(0xFF090D1A).copy(alpha = 0.98f)
+                            Color(0xFF10172A).copy(alpha = 0.96f),
+                            Color(0xFF090D1A).copy(alpha = 0.99f)
                         )
                     )
                 )
@@ -244,15 +262,15 @@ fun AssistantOverlayScreen(
                         .background(NeonCyan.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("E", color = NeonCyan, fontWeight = FontWeight.Bold)
+                    Text("E", color = NeonCyan, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
 
                 Box(
                     modifier = Modifier
-                        .width(40.dp)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color.White.copy(alpha = 0.3f))
+                        .width(44.dp)
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color.White.copy(alpha = 0.35f))
                 )
 
                 IconButton(
@@ -267,24 +285,24 @@ fun AssistantOverlayScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             // Siri Glowing Circle Animation
             SiriOrbVisualizer(
                 state = state,
                 audioLevel = audioLevel,
-                sizeDp = 180.dp,
+                sizeDp = 175.dp,
                 onClick = onToggleVoice,
-                modifier = Modifier.padding(vertical = 10.dp)
+                modifier = Modifier.padding(vertical = 8.dp)
             )
 
             // Status Indicator Text
             val statusText = when (state) {
-                AssistantState.LISTENING -> "Listening to your voice..."
+                AssistantState.LISTENING -> "Listening... Speak your request"
                 AssistantState.THINKING -> "Echo is processing..."
                 AssistantState.SPEAKING -> "Echo is responding..."
                 AssistantState.ERROR -> "Couldn't hear clearly. Tap orb to retry."
-                AssistantState.IDLE -> "Tap orb or speak a command"
+                AssistantState.IDLE -> "Tap glowing orb or speak a command"
             }
 
             val statusColor = when (state) {
@@ -305,14 +323,58 @@ fun AssistantOverlayScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Live Transcript Box
-            if (transcript.isNotEmpty()) {
+            // Calculation Result Special Display Card
+            if (lastResult is ActionResult.CalculationAction) {
+                GlassmorphicCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    borderColor = NeonCyan.copy(alpha = 0.5f),
+                    backgroundColor = DarkNebulaSurface.copy(alpha = 0.85f)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = lastResult.expression,
+                                color = TextMuted,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "= ${lastResult.resultValue}",
+                                color = NeonCyan,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 24.sp
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(NeonCyan.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Calculate,
+                                contentDescription = "Calculator",
+                                tint = NeonCyan,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+            } else if (transcript.isNotEmpty()) {
+                // Live Transcript Box
                 GlassmorphicCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp),
                     borderColor = NeonCyan.copy(alpha = 0.3f),
-                    backgroundColor = DarkNebulaSurface.copy(alpha = 0.7f)
+                    backgroundColor = DarkNebulaSurface.copy(alpha = 0.75f)
                 ) {
                     Text(
                         text = transcript,
@@ -323,7 +385,7 @@ fun AssistantOverlayScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
             }
 
             // Quick Suggestions Chips
@@ -366,7 +428,7 @@ fun AssistantOverlayScreen(
                 OutlinedTextField(
                     value = textInput,
                     onValueChange = { textInput = it },
-                    placeholder = { Text("Ask or control anything...", color = TextMuted, fontSize = 13.sp) },
+                    placeholder = { Text("Ask or control anything (e.g. 50 * 4)...", color = TextMuted, fontSize = 13.sp) },
                     modifier = Modifier
                         .weight(1f)
                         .testTag("assistant_text_input"),
@@ -421,3 +483,4 @@ fun AssistantOverlayScreen(
         }
     }
 }
+

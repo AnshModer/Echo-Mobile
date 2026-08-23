@@ -3,7 +3,10 @@ package com.example
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -33,10 +36,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -91,6 +96,8 @@ import com.example.engine.BatteryInfo
 import com.example.engine.DeviceController
 import com.example.engine.EchoNlpEngine
 import com.example.engine.VolumeInfo
+import com.example.service.EchoFloatingBubbleService
+import com.example.service.EchoTriggerNotificationService
 import com.example.ui.components.BatteryStatusCard
 import com.example.ui.components.FlashlightControlCard
 import com.example.ui.components.GlassmorphicCard
@@ -131,6 +138,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted && preferences.isQuickNotificationEnabled) {
+            EchoTriggerNotificationService.startService(this)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -142,6 +157,19 @@ class MainActivity : ComponentActivity() {
 
         voiceManager = EchoVoiceManager(this) { spokenQuery ->
             executeCommand(spokenQuery)
+        }
+
+        // Start persistent quick-trigger notification if enabled
+        if (preferences.isQuickNotificationEnabled) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                    EchoTriggerNotificationService.startService(this)
+                } else {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            } else {
+                EchoTriggerNotificationService.startService(this)
+            }
         }
 
         setContent {
@@ -158,7 +186,9 @@ class MainActivity : ComponentActivity() {
                         executeCommand(query)
                     },
                     onOpenAssistantOverlay = {
-                        val intent = Intent(this, AssistantActivity::class.java)
+                        val intent = Intent(this, AssistantActivity::class.java).apply {
+                            putExtra("EXTRA_AUTO_START_LISTENING", true)
+                        }
                         startActivity(intent)
                     }
                 )
@@ -217,11 +247,13 @@ fun MainAssistantDashboard(
     ) == PackageManager.PERMISSION_GRANTED
 
     val quickActionChips = listOf(
+        Pair("Calculate 25 * 4", Icons.Default.Calculate),
+        Pair("Play Music", Icons.Default.MusicNote),
+        Pair("Search YouTube", Icons.Default.PlayArrow),
         Pair("Turn on Flashlight", Icons.Default.FlashlightOn),
         Pair("Volume to 80%", Icons.Default.VolumeUp),
         Pair("Battery Status", Icons.Default.Refresh),
         Pair("Set 5m Timer", Icons.Default.Timer),
-        Pair("Open YouTube", Icons.Default.PlayArrow),
         Pair("Take Note", Icons.Default.Chat),
         Pair("Tell me a Joke", Icons.Default.Mic)
     )
@@ -663,6 +695,66 @@ fun MainAssistantDashboard(
                             )
                         }
                     }
+                }
+
+                // Persistent Quick Notification Trigger
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Persistent Quick Trigger", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Swipe down from any app to summon assistant", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    var notifEnabled by remember { mutableStateOf(preferences.isQuickNotificationEnabled) }
+                    Switch(
+                        checked = notifEnabled,
+                        onCheckedChange = {
+                            notifEnabled = it
+                            preferences.isQuickNotificationEnabled = it
+                            if (it) {
+                                EchoTriggerNotificationService.startService(context)
+                            } else {
+                                EchoTriggerNotificationService.stopService(context)
+                            }
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = NeonCyan)
+                    )
+                }
+
+                // Floating Screen Bubble
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Floating Assist Bubble", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Glowing floating orb on screen over other apps", color = TextSecondary, fontSize = 12.sp)
+                    }
+                    var bubbleEnabled by remember { mutableStateOf(preferences.isFloatingBubbleEnabled) }
+                    Switch(
+                        checked = bubbleEnabled,
+                        onCheckedChange = {
+                            if (it && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                                context.startActivity(intent)
+                            } else {
+                                bubbleEnabled = it
+                                preferences.isFloatingBubbleEnabled = it
+                                if (it) {
+                                    EchoFloatingBubbleService.start(context)
+                                } else {
+                                    EchoFloatingBubbleService.stop(context)
+                                }
+                            }
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = VividViolet)
+                    )
                 }
 
                 // Voice Response Toggles
