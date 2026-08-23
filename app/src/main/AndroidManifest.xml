@@ -140,9 +140,9 @@
             </intent-filter>
         </service>
 
-        <!-- Persistent Quick-Trigger Notification Service -->
-        <service
-            android:name=".service.EchoTriggerNotificationService"
+        <!-- Notification Quick Action Receiver -->
+        <receiver
+            android:name=".service.EchoNotificationActionReceiver"
             android:exported="false" />
 
         <!-- Floating Screen Bubble Overlay Service -->

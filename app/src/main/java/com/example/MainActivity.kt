@@ -97,7 +97,7 @@ import com.example.engine.DeviceController
 import com.example.engine.EchoNlpEngine
 import com.example.engine.VolumeInfo
 import com.example.service.EchoFloatingBubbleService
-import com.example.service.EchoTriggerNotificationService
+import com.example.service.EchoNotificationHelper
 import com.example.ui.components.BatteryStatusCard
 import com.example.ui.components.FlashlightControlCard
 import com.example.ui.components.GlassmorphicCard
@@ -142,7 +142,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted && preferences.isQuickNotificationEnabled) {
-            EchoTriggerNotificationService.startService(this)
+            EchoNotificationHelper.showNotification(this)
         }
     }
 
@@ -159,16 +159,16 @@ class MainActivity : ComponentActivity() {
             executeCommand(spokenQuery)
         }
 
-        // Start persistent quick-trigger notification if enabled
+        // Show persistent quick-trigger notification if enabled
         if (preferences.isQuickNotificationEnabled) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                    EchoTriggerNotificationService.startService(this)
+                    EchoNotificationHelper.showNotification(this)
                 } else {
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             } else {
-                EchoTriggerNotificationService.startService(this)
+                EchoNotificationHelper.showNotification(this)
             }
         }
 
@@ -714,9 +714,9 @@ fun MainAssistantDashboard(
                             notifEnabled = it
                             preferences.isQuickNotificationEnabled = it
                             if (it) {
-                                EchoTriggerNotificationService.startService(context)
+                                EchoNotificationHelper.showNotification(context)
                             } else {
-                                EchoTriggerNotificationService.stopService(context)
+                                EchoNotificationHelper.hideNotification(context)
                             }
                         },
                         colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = NeonCyan)
