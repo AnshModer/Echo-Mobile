@@ -42,7 +42,201 @@ class EchoNlpEngine(
         val clean = rawQuery.trim()
         val lower = clean.lowercase(Locale.ROOT)
 
-        val result: ActionResult = when {
+        // 1. If Gemini API Key is available, use Gemini's deep intent understanding to execute tasks
+        // even if the user speaks imperfectly, informally, in slang, or indirectly.
+        if (geminiClient.hasActiveKey()) {
+            val geminiIntent = geminiClient.interpretAndExecuteTask(clean)
+            if (geminiIntent != null) {
+                val actionResult = executeGeminiTask(geminiIntent, clean)
+                recordHistory(clean, actionResult)
+                return@withContext actionResult
+            }
+        }
+
+        // 2. Fast local rule-based engine (and offline fallback)
+        val result: ActionResult = processLocalQuery(clean, lower)
+        recordHistory(clean, result)
+        result
+    }
+
+    private suspend fun executeGeminiTask(intent: GeminiTaskIntent, rawQuery: String): ActionResult {
+        val clean = rawQuery.trim()
+        return when (intent.action.uppercase(Locale.ROOT)) {
+            "FLASHLIGHT" -> {
+                val state = intent.state ?: !DeviceController.isFlashlightOn
+                deviceController.toggleFlashlight(state)
+                val speech = intent.spokenResponse.ifBlank {
+                    if (state) "Flashlight turned on." else "Flashlight turned off."
+                }
+                ActionResult.FlashlightAction(speech, state)
+            }
+
+            "VOLUME" -> {
+                val direction = intent.volumeDirection?.uppercase(Locale.ROOT)
+                when (direction) {
+                    "MUTE" -> {
+                        val res = deviceController.muteVolume(true)
+                        val speech = intent.spokenResponse.ifBlank { res }
+                        ActionResult.VolumeAction(speech, 0)
+                    }
+                    "UNMUTE" -> {
+                        val res = deviceController.muteVolume(false)
+                        val speech = intent.spokenResponse.ifBlank { res }
+                        ActionResult.VolumeAction(speech, 50)
+                    }
+                    "UP" -> {
+                        val res = deviceController.adjustVolume(true)
+                        val vol = deviceController.getVolumeInfo().mediaPercent
+                        val speech = intent.spokenResponse.ifBlank { res }
+                        ActionResult.VolumeAction(speech, vol)
+                    }
+                    "DOWN" -> {
+                        val res = deviceController.adjustVolume(false)
+                        val vol = deviceController.getVolumeInfo().mediaPercent
+                        val speech = intent.spokenResponse.ifBlank { res }
+                        ActionResult.VolumeAction(speech, vol)
+                    }
+                    else -> {
+                        val lvl = (intent.level ?: 50).coerceIn(0, 100)
+                        val res = deviceController.setMediaVolumePercent(lvl)
+                        val speech = intent.spokenResponse.ifBlank { res }
+                        ActionResult.VolumeAction(speech, lvl)
+                    }
+                }
+            }
+
+            "BATTERY" -> {
+                val info = deviceController.getBatteryInfo()
+                val speech = intent.spokenResponse.ifBlank {
+                    val statusText = if (info.isCharging) "charging (${info.chargeType})" else "remaining"
+                    "Your battery is at ${info.level}% and currently $statusText. Temperature is ${info.temperatureCelsius}°C."
+                }
+                ActionResult.BatteryAction(speech, info)
+            }
+
+            "APP_LAUNCH" -> {
+                val app = intent.appName?.trim()?.ifBlank { "camera" } ?: "camera"
+                val res = deviceController.openApp(app)
+                val speech = intent.spokenResponse.ifBlank { res.second }
+                ActionResult.AppLaunchAction(speech, app, res.first)
+            }
+
+            "TIMER" -> {
+                val seconds = (intent.timerSeconds ?: 60).coerceAtLeast(1)
+                val res = deviceController.setTimer(seconds)
+                val speech = intent.spokenResponse.ifBlank { res.second }
+                ActionResult.TimerAction(speech, seconds)
+            }
+
+            "ALARM" -> {
+                val hour = (intent.alarmHour ?: 7).coerceIn(0, 23)
+                val minute = (intent.alarmMinute ?: 0).coerceIn(0, 59)
+                val res = deviceController.setAlarm(hour, minute, "Echo Assistant Alarm")
+                val formatted = String.format(Locale.getDefault(), "%02d:%02d", hour, minute)
+                val speech = intent.spokenResponse.ifBlank { res.second }
+                ActionResult.AlarmAction(speech, formatted)
+            }
+
+            "NOTE" -> {
+                val noteBody = intent.noteContent?.trim()?.ifBlank { clean } ?: clean
+                val title = if (noteBody.length > 25) noteBody.substring(0, 25) + "..." else noteBody
+                database.assistantDao().insertNote(
+                    VoiceNoteItem(title = title, content = noteBody)
+                )
+                val speech = intent.spokenResponse.ifBlank { "Note saved: \"$noteBody\"" }
+                ActionResult.NoteAction(speech, noteBody)
+            }
+
+            "CALL" -> {
+                val target = intent.callTarget?.trim()?.ifBlank { clean } ?: clean
+                val res = deviceController.makeCall(target)
+                val speech = intent.spokenResponse.ifBlank { res.second }
+                ActionResult.CallAction(speech, target)
+            }
+
+            "SMS" -> {
+                val target = intent.smsTarget?.trim() ?: ""
+                val body = intent.smsBody?.trim() ?: ""
+                val res = deviceController.sendSms(target, body)
+                val speech = intent.spokenResponse.ifBlank { res.second }
+                ActionResult.CallAction(speech, target)
+            }
+
+            "SETTINGS" -> {
+                val target = intent.settingsTarget?.uppercase(Locale.ROOT) ?: "SETTINGS"
+                when (target) {
+                    "WIFI" -> deviceController.openWifiSettings()
+                    "BLUETOOTH" -> deviceController.openBluetoothSettings()
+                    "DISPLAY", "BRIGHTNESS" -> deviceController.openDisplaySettings()
+                    "SOUND", "VOLUME" -> deviceController.openSoundSettings()
+                    "BATTERY" -> deviceController.openBatterySettings()
+                    "ASSISTANT" -> deviceController.openDefaultAssistantSettings()
+                    "GESTURE", "SHORTCUT" -> deviceController.openRedmiGestureSettings()
+                    else -> deviceController.openSettingsScreen(android.provider.Settings.ACTION_SETTINGS)
+                }
+                val speech = intent.spokenResponse.ifBlank { "Opening $target settings." }
+                ActionResult.SettingsAction(speech, target)
+            }
+
+            "NAVIGATION" -> {
+                val dest = intent.destination?.trim()?.ifBlank { clean } ?: clean
+                val res = deviceController.openMapsNavigation(dest)
+                val speech = intent.spokenResponse.ifBlank { res.second }
+                ActionResult.WebAction(speech, dest)
+            }
+
+            "WEB_SEARCH" -> {
+                val query = intent.searchQuery?.trim()?.ifBlank { clean } ?: clean
+                val res = deviceController.webSearch(query)
+                val speech = intent.spokenResponse.ifBlank { res.second }
+                ActionResult.WebAction(speech, query)
+            }
+
+            "YOUTUBE" -> {
+                val ytQ = intent.youtubeQuery?.trim()?.ifBlank { clean } ?: clean
+                val res = if (clean.contains("play", ignoreCase = true) || intent.mediaCommand?.equals("PLAY", ignoreCase = true) == true) {
+                    deviceController.playOnYouTube(ytQ)
+                } else {
+                    deviceController.searchYouTube(ytQ)
+                }
+                val speech = intent.spokenResponse.ifBlank { res.second }
+                ActionResult.YouTubeAction(speech, ytQ)
+            }
+
+            "MEDIA" -> {
+                val cmd = intent.mediaCommand?.uppercase(Locale.ROOT) ?: "PLAY"
+                val res = when (cmd) {
+                    "PAUSE", "STOP" -> deviceController.pauseMusic()
+                    "NEXT" -> deviceController.nextTrack()
+                    "PREVIOUS" -> deviceController.previousTrack()
+                    "SPOTIFY" -> deviceController.playOnSpotify(intent.mediaTarget ?: clean)
+                    else -> deviceController.playMusic(intent.mediaTarget)
+                }
+                val speech = intent.spokenResponse.ifBlank { res.second }
+                ActionResult.MediaAction(speech, cmd)
+            }
+
+            "CALCULATION" -> {
+                val expr = intent.expression ?: clean
+                val calcRes = intent.calculationResult ?: ""
+                val speech = intent.spokenResponse.ifBlank {
+                    if (calcRes.isNotBlank()) "$expr equals $calcRes" else "Calculated $expr"
+                }
+                ActionResult.CalculationAction(speech, expr, calcRes)
+            }
+
+            "CHAT" -> {
+                ActionResult.AiResponse(intent.spokenResponse)
+            }
+
+            else -> {
+                ActionResult.AiResponse(intent.spokenResponse)
+            }
+        }
+    }
+
+    private suspend fun processLocalQuery(clean: String, lower: String): ActionResult {
+        return when {
             // --- MATH & CALCULATIONS ---
             isMathCalculationQuery(lower) -> {
                 val calcResult = evaluateMathQuery(clean)
@@ -242,12 +436,13 @@ class EchoNlpEngine(
                 ActionResult.AiResponse(aiResponseText)
             }
         }
+    }
 
-        // Record into history
+    private suspend fun recordHistory(query: String, result: ActionResult) {
         try {
             database.assistantDao().insertHistory(
                 CommandHistoryItem(
-                    queryText = clean,
+                    queryText = query,
                     responseText = result.responseText,
                     actionType = result.actionType
                 )
@@ -255,8 +450,6 @@ class EchoNlpEngine(
         } catch (e: Exception) {
             e.printStackTrace()
         }
-
-        result
     }
 
     private fun isFlashlightOnQuery(query: String): Boolean {
