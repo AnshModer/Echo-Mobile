@@ -65,6 +65,44 @@ class GeminiClient(private val context: Context? = null) {
     }
 
     /**
+     * Tests the provided or stored Gemini API key against Google's endpoint to verify connectivity.
+     */
+    suspend fun testApiKey(customKey: String? = null): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val key = (customKey?.trim()?.ifBlank { null } ?: getActiveApiKey()).trim()
+        if (key.isBlank()) {
+            return@withContext Pair(false, "No API key entered. Enter a Gemini API key or set AI Studio secrets.")
+        }
+
+        try {
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$key"
+            val testBody = JSONObject().apply {
+                put("contents", JSONArray().put(JSONObject().apply {
+                    put("parts", JSONArray().put(JSONObject().apply {
+                        put("text", "Say: 'Gemini connected.'")
+                    }))
+                }))
+            }
+
+            val request = Request.Builder()
+                .url(url)
+                .post(testBody.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                Pair(true, "API Key verified! Gemini 2.5 Flash is active & responding.")
+            } else {
+                val code = response.code
+                val bodyStr = response.body?.string() ?: ""
+                val msg = if (code == 400 || code == 403) "Invalid API Key or unauthorized ($code)." else "Connection error ($code)."
+                Pair(false, msg)
+            }
+        } catch (e: Exception) {
+            Pair(false, "Connection error: ${e.localizedMessage ?: "Timeout"}")
+        }
+    }
+
+    /**
      * Uses Gemini 3.5 Flash to understand user requests, even if imperfect, slang, casual,
      * misspelled, or indirect, and maps them to concrete device tasks and actions.
      */
@@ -73,7 +111,7 @@ class GeminiClient(private val context: Context? = null) {
         if (apiKey.isBlank()) return@withContext null
 
         try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey"
 
             val systemInstruction = """
                 You are Echo, an intelligent Android digital voice assistant.
@@ -224,7 +262,7 @@ class GeminiClient(private val context: Context? = null) {
         }
 
         try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey"
 
             val systemInstruction = """
                 You are Echo, an intelligent, sleek, fast, and warm digital voice assistant for Android.

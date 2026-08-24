@@ -48,9 +48,8 @@ class EchoWakeWordManager(
         private const val TAG = "EchoWakeWordManager"
         private const val SAMPLE_RATE = 16000
         private const val FRAME_SIZE_SAMPLES = 512 // 32ms frames @ 16kHz
-        private const val MFCC_NUM_COEFFS = 13
-        private const val NUM_MEL_FILTERS = 26
-        private const val TRIGGER_DEBOUNCE_MS = 2500L
+        private const val TRIGGER_DEBOUNCE_MS = 3500L
+        private const val HISTORY_FRAME_COUNT = 48 // ~1.5s sliding window
     }
 
     private val preferences = AssistantPreferences(context)
@@ -66,12 +65,12 @@ class EchoWakeWordManager(
     val isListening: StateFlow<Boolean> = _isListening.asStateFlow()
 
     private var lastTriggerTimestamp = 0L
-    private var noiseFloorEnergy = 400.0
+    private var noiseFloorEnergy = 450.0
 
-    // Acoustic sliding buffer for temporal phoneme verification (sliding window of ~1.2 seconds)
-    private val historyFrameCount = 36
-    private val energyHistory = DoubleArray(historyFrameCount)
-    private val zcrHistory = DoubleArray(historyFrameCount)
+    // Acoustic sliding buffer for temporal phoneme verification (~1.5 seconds)
+    private val energyHistory = DoubleArray(HISTORY_FRAME_COUNT)
+    private val zcrHistory = DoubleArray(HISTORY_FRAME_COUNT)
+    private val highFreqEnergyRatioHistory = DoubleArray(HISTORY_FRAME_COUNT)
     private var historyIndex = 0
 
     fun start() {
@@ -173,14 +172,17 @@ class EchoWakeWordManager(
     }
 
     private fun processAudioFrame(buffer: ShortArray, length: Int) {
-        // 1. Calculate RMS Energy and Zero-Crossing Rate (ZCR)
+        // 1. Calculate RMS Energy, Zero-Crossing Rate (ZCR), and high-frequency sample differential
         var sumSquares = 0.0
         var zeroCrossings = 0
+        var highFreqEnergySum = 0.0
         var prevSample = buffer[0].toInt()
 
         for (i in 0 until length) {
             val s = buffer[i].toInt()
             sumSquares += (s * s)
+            val diff = s - prevSample
+            highFreqEnergySum += (diff * diff)
             if ((s >= 0 && prevSample < 0) || (s < 0 && prevSample >= 0)) {
                 zeroCrossings++
             }
@@ -189,68 +191,99 @@ class EchoWakeWordManager(
 
         val rmsEnergy = sqrt(sumSquares / length)
         val zcr = zeroCrossings.toDouble() / length
+        val highFreqRatio = if (sumSquares > 0) sqrt(highFreqEnergySum / sumSquares) else 0.0
 
-        // 2. Dynamic Noise Floor Tracking
-        noiseFloorEnergy = (noiseFloorEnergy * 0.96) + (min(noiseFloorEnergy * 1.5, rmsEnergy) * 0.04)
-        val energyThreshold = max(250.0, noiseFloorEnergy * 1.6)
+        // 2. Dynamic Noise Floor Tracking (requires distinct voice headroom above ambient noise)
+        noiseFloorEnergy = (noiseFloorEnergy * 0.97) + (min(noiseFloorEnergy * 1.3, rmsEnergy) * 0.03)
+        val ambientThreshold = max(650.0, noiseFloorEnergy * 2.2)
 
         // Store frame metrics in cyclic history
         energyHistory[historyIndex] = rmsEnergy
         zcrHistory[historyIndex] = zcr
-        historyIndex = (historyIndex + 1) % historyFrameCount
+        highFreqEnergyRatioHistory[historyIndex] = highFreqRatio
+        historyIndex = (historyIndex + 1) % HISTORY_FRAME_COUNT
 
-        // 3. Stage 1: Energy & VAD Gating (Low CPU mode during silence)
-        if (rmsEnergy < energyThreshold) {
+        // 3. Stage 1: Energy Gating - ignore frames below voice energy threshold
+        if (rmsEnergy < ambientThreshold) {
             return
         }
 
-        // 4. Stage 2: Acoustic Temporal Envelope Matching for "Hey Echo" / "Echo"
-        // "Hey Echo" has a distinct energy profile:
-        // Syllable 1: "Hey" /h eɪ/ (fricative onset -> mid-high vowel)
-        // Syllable 2: "Eh" /ɛ/ (vowel dip & peak)
-        // Syllable 3: "ck" /k/ (unvoiced plosive silence gap ~40-90ms with high ZCR burst)
-        // Syllable 4: "oh" /oʊ/ (resonant vowel tail)
-        val detected = evaluateAcousticMatch(energyThreshold)
+        // 4. Stage 2: Temporal Acoustic & Syllable Verification for "Hey Echo" / "Echo"
+        val detected = evaluateAcousticMatch(ambientThreshold)
         if (detected) {
             val now = System.currentTimeMillis()
             if (now - lastTriggerTimestamp > TRIGGER_DEBOUNCE_MS) {
                 lastTriggerTimestamp = now
-                Log.i(TAG, "Wake word detected successfully!")
+                Log.i(TAG, "Wake word 'Hey Echo' verified and detected!")
                 triggerWakeWord("Hey Echo")
             }
         }
     }
 
-    private fun evaluateAcousticMatch(energyThreshold: Double): Boolean {
-        val sensitivity = preferences.wakeWordSensitivity.coerceIn(0.2f, 1.0f)
-        val requiredFrames = (14 * (1.1f - sensitivity * 0.3f)).toInt()
+    private fun evaluateAcousticMatch(threshold: Double): Boolean {
+        val sensitivity = preferences.wakeWordSensitivity.coerceIn(0.2f, 0.95f)
 
-        var activeSpeechFrames = 0
-        var plosiveSilenceDipDetected = false
-        var highZcrBurstDetected = false
+        // Minimum voice utterance length: 300ms to 1200ms (10 to 38 frames @ 32ms/frame)
+        // Sensitivity 0.40 (Balanced) -> requires strictly formed syllabic contour
+        var speechFrameCount = 0
+        var totalFramesChecked = 0
+        
+        // Track the presence of distinct syllable bursts separated by brief vowel/consonant dips
+        var syllablePeaks = 0
+        var inPeak = false
+        var hasPlosiveKBurst = false
+        var hasVowelResonance = false
 
-        for (i in 0 until historyFrameCount) {
-            val idx = (historyIndex - 1 - i + historyFrameCount) % historyFrameCount
+        for (i in 0 until min(HISTORY_FRAME_COUNT, 36)) {
+            val idx = (historyIndex - 1 - i + HISTORY_FRAME_COUNT) % HISTORY_FRAME_COUNT
             val e = energyHistory[idx]
             val z = zcrHistory[idx]
+            val hf = highFreqEnergyRatioHistory[idx]
 
-            if (e > energyThreshold) {
-                activeSpeechFrames++
-            }
+            totalFramesChecked++
 
-            // Look for the "ck" /k/ stop-consonant occlusion (energy dip followed by burst)
-            if (i in 4..18) {
-                if (e < energyThreshold * 0.75) {
-                    plosiveSilenceDipDetected = true
+            if (e > threshold * 1.1) {
+                speechFrameCount++
+                if (!inPeak && e > threshold * 1.4) {
+                    inPeak = true
+                    syllablePeaks++
                 }
-                if (z > 0.18) {
-                    highZcrBurstDetected = true
+                // Check vowel resonance (moderate ZCR, high RMS) for /eɪ/, /ɛ/, /oʊ/
+                if (z in 0.04..0.22 && e > threshold * 1.3) {
+                    hasVowelResonance = true
                 }
+                // Check velar plosive /k/ (sharp transient high ZCR burst or HF ratio > 0.9)
+                if ((z > 0.24 || hf > 1.1) && e > threshold * 0.8) {
+                    hasPlosiveKBurst = true
+                }
+            } else if (e < threshold * 0.85) {
+                inPeak = false
             }
         }
 
-        // Match criteria: adequate continuous speech envelope + plosive characteristic of "Echo"
-        return activeSpeechFrames >= requiredFrames && (plosiveSilenceDipDetected || highZcrBurstDetected || sensitivity > 0.85f)
+        // Minimum duration threshold based on sensitivity
+        val minRequiredSpeechFrames = when {
+            sensitivity <= 0.35f -> 14 // ~450ms sustained pattern (Strict)
+            sensitivity <= 0.55f -> 10 // ~320ms sustained pattern (Balanced)
+            else -> 8                  // ~250ms (Sensitive)
+        }
+
+        val maxAllowedSpeechFrames = 34 // Discard continuous long speech/babble (> 1.1s)
+
+        if (speechFrameCount < minRequiredSpeechFrames || speechFrameCount > maxAllowedSpeechFrames) {
+            return false
+        }
+
+        // Must have at least 2 distinct acoustic energy peaks (e.g. "Hey" + "Echo" or "Eh" + "cho")
+        // AND have characteristic acoustic properties of the word "Echo"
+        val hasValidSyllableStructure = syllablePeaks in 2..4
+        val hasEchoCharacteristics = hasPlosiveKBurst && hasVowelResonance
+
+        return when {
+            sensitivity <= 0.35f -> hasValidSyllableStructure && hasEchoCharacteristics && speechFrameCount in 12..30
+            sensitivity <= 0.55f -> (hasValidSyllableStructure || hasEchoCharacteristics) && syllablePeaks >= 2
+            else -> syllablePeaks >= 2 && (hasVowelResonance || hasPlosiveKBurst)
+        }
     }
 
     private fun triggerWakeWord(phrase: String) {

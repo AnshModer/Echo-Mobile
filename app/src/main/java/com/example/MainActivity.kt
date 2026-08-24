@@ -15,6 +15,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,7 +38,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
+import com.example.engine.GeminiClient
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Chat
@@ -818,9 +822,11 @@ fun MainAssistantDashboard(
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = DarkNebulaSurface
         ) {
+            val settingsScrollState = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(settingsScrollState)
                     .padding(horizontal = 24.dp, vertical = 12.dp)
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -948,9 +954,9 @@ fun MainAssistantDashboard(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             val levels = listOf(
-                                "Balanced" to 0.65f,
-                                "High" to 0.78f,
-                                "Ultra Sensitive" to 0.90f
+                                "Strict" to 0.30f,
+                                "Balanced" to 0.45f,
+                                "Sensitive" to 0.70f
                             )
                             levels.forEach { (label, sensVal) ->
                                 val isSelected = Math.abs(sensitivity - sensVal) < 0.06f
@@ -1102,7 +1108,7 @@ fun MainAssistantDashboard(
                     )
                 }
 
-                // Gemini 3.5 Flash AI Intelligence Configuration
+                // Gemini AI Intelligence Configuration
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1110,8 +1116,14 @@ fun MainAssistantDashboard(
                         .background(Color(0xFF131A2A))
                         .border(1.dp, Color(0xFF25334E), RoundedCornerShape(16.dp))
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    var apiKeyInput by remember { mutableStateOf(preferences.customGeminiApiKey) }
+                    var showKeyPassword by remember { mutableStateOf(false) }
+                    var verificationStatusText by remember { mutableStateOf<String?>(null) }
+                    var isVerifyingKey by remember { mutableStateOf(false) }
+                    var isKeyValid by remember { mutableStateOf(preferences.hasValidGeminiApiKey()) }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1125,23 +1137,22 @@ fun MainAssistantDashboard(
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
-                                text = "Gemini 3.5 Flash Intelligence",
+                                text = "Gemini Flash Intelligence",
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary,
                                 fontSize = 14.sp
                             )
                         }
 
-                        val hasKey = preferences.hasValidGeminiApiKey()
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (hasKey) EmeraldGlow.copy(alpha = 0.2f) else SolarAmber.copy(alpha = 0.2f))
+                                .background(if (isKeyValid) EmeraldGlow.copy(alpha = 0.2f) else SolarAmber.copy(alpha = 0.2f))
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = if (hasKey) "ACTIVE & TALKING" else "READY",
-                                color = if (hasKey) EmeraldGlow else SolarAmber,
+                                text = if (isKeyValid) "ACTIVE & READY" else "SET API KEY",
+                                color = if (isKeyValid) EmeraldGlow else SolarAmber,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
@@ -1149,24 +1160,20 @@ fun MainAssistantDashboard(
                     }
 
                     Text(
-                        text = "Powered by Google Gemini 3.5 Flash for natural conversations, answering questions, giving advice, and spoken voice intelligence. Auto-configured via AI Studio Secrets.",
+                        text = "Powers natural language conversational skills, multi-turn dialogues, real-time math, and smart voice command comprehension.",
                         color = TextSecondary,
                         fontSize = 12.sp,
                         lineHeight = 16.sp
                     )
 
-                    var apiKeyInput by remember { mutableStateOf(preferences.customGeminiApiKey) }
-                    var showKeyPassword by remember { mutableStateOf(false) }
-                    var keySavedConfirmation by remember { mutableStateOf(false) }
-
                     OutlinedTextField(
                         value = apiKeyInput,
                         onValueChange = {
                             apiKeyInput = it
-                            keySavedConfirmation = false
+                            verificationStatusText = null
                         },
-                        label = { Text("Custom Gemini API Key (Optional)", fontSize = 12.sp) },
-                        placeholder = { Text("Enter key or leave blank to use build secret", fontSize = 11.sp, color = TextMuted) },
+                        label = { Text("Gemini API Key", fontSize = 12.sp) },
+                        placeholder = { Text("Paste AIzaSy... key here", fontSize = 11.sp, color = TextMuted) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("gemini_api_key_input"),
@@ -1195,22 +1202,45 @@ fun MainAssistantDashboard(
                         )
                     )
 
+                    if (verificationStatusText != null) {
+                        Text(
+                            text = verificationStatusText!!,
+                            color = if (isKeyValid) EmeraldGlow else SolarAmber,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
                             onClick = {
-                                preferences.customGeminiApiKey = apiKeyInput
-                                keySavedConfirmation = true
+                                preferences.customGeminiApiKey = apiKeyInput.trim()
+                                coroutineScope.launch {
+                                    isVerifyingKey = true
+                                    verificationStatusText = "Validating key with Google..."
+                                    val (success, message) = GeminiClient(context).testApiKey(apiKeyInput.trim())
+                                    isVerifyingKey = false
+                                    isKeyValid = success
+                                    verificationStatusText = message
+                                }
                             },
+                            enabled = !isVerifyingKey,
                             modifier = Modifier.weight(1f).testTag("save_api_key_button"),
                             colors = ButtonDefaults.buttonColors(containerColor = VividViolet),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (keySavedConfirmation) "Saved!" else "Save Key", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            if (isVerifyingKey) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Testing...", fontSize = 12.sp)
+                            } else {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Save & Verify", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
 
                         if (apiKeyInput.isNotBlank()) {
@@ -1218,7 +1248,8 @@ fun MainAssistantDashboard(
                                 onClick = {
                                     apiKeyInput = ""
                                     preferences.customGeminiApiKey = ""
-                                    keySavedConfirmation = false
+                                    isKeyValid = preferences.hasValidGeminiApiKey()
+                                    verificationStatusText = "API key cleared."
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
                                 shape = RoundedCornerShape(10.dp)

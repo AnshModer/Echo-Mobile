@@ -62,7 +62,7 @@ class AssistantPreferences(context: Context) {
         set(value) = prefs.edit().putBoolean("wake_word_enabled", value).apply()
 
     var wakeWordSensitivity: Float
-        get() = prefs.getFloat("wake_word_sensitivity", 0.70f)
+        get() = prefs.getFloat("wake_word_sensitivity", 0.45f)
         set(value) = prefs.edit().putFloat("wake_word_sensitivity", value).apply()
 
     var wakeWordPhrase: String
