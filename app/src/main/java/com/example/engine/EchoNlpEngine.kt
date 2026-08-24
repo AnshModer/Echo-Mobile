@@ -315,38 +315,35 @@ class EchoNlpEngine(
             }
 
             // --- VOLUME CONTROLS ---
-            (lower.contains("mute") && !lower.contains("unmute")) || lower.contains("chup ho") || lower.contains("chup raho") || lower.contains("sound band") -> {
+            lower.contains("mute") && !lower.contains("unmute") -> {
                 val res = deviceController.muteVolume(true)
                 ActionResult.VolumeAction(res, 0)
             }
-            lower.contains("unmute") || lower.contains("sound on") || lower.contains("aawaz on") -> {
+            lower.contains("unmute") -> {
                 val res = deviceController.muteVolume(false)
                 ActionResult.VolumeAction(res, 50)
             }
-            lower.contains("volume up") || lower.contains("increase volume") || lower.contains("raise volume") ||
-            lower.contains("aawaz badhao") || lower.contains("sound badhao") || lower.contains("awaz badha") || lower.contains("volume badhao") -> {
+            lower.contains("volume up") || lower.contains("increase volume") || lower.contains("raise volume") -> {
                 val res = deviceController.adjustVolume(true)
                 val vol = deviceController.getVolumeInfo().mediaPercent
                 ActionResult.VolumeAction(res, vol)
             }
-            lower.contains("volume down") || lower.contains("decrease volume") || lower.contains("lower volume") ||
-            lower.contains("aawaz kam") || lower.contains("sound kam") || lower.contains("awaz kam") || lower.contains("volume kam") -> {
+            lower.contains("volume down") || lower.contains("decrease volume") || lower.contains("lower volume") -> {
                 val res = deviceController.adjustVolume(false)
                 val vol = deviceController.getVolumeInfo().mediaPercent
                 ActionResult.VolumeAction(res, vol)
             }
-            (lower.contains("volume") || lower.contains("aawaz")) && (lower.contains("%") || lower.matches(Regex(".*(volume|aawaz).*\\d+.*"))) -> {
+            lower.contains("volume") && (lower.contains("%") || lower.matches(Regex(".*volume.*\\d+.*"))) -> {
                 val percent = extractNumber(lower) ?: 50
                 val res = deviceController.setMediaVolumePercent(percent)
                 ActionResult.VolumeAction(res, percent)
             }
 
             // --- BATTERY STATUS ---
-            lower.contains("battery") || lower.contains("power level") || lower.contains("charge level") ||
-            lower.contains("charge kitna") || lower.contains("charging ho rahi") || lower.contains("battery kitni") -> {
+            lower.contains("battery") || lower.contains("power level") || lower.contains("charge level") -> {
                 val info = deviceController.getBatteryInfo()
                 val statusText = if (info.isCharging) "charging (${info.chargeType})" else "remaining"
-                val speech = "Aapki battery ${info.level}% hai aur abhi $statusText hai. Temperature ${info.temperatureCelsius}°C hai."
+                val speech = "Your battery is at ${info.level}% and currently $statusText. Temperature is ${info.temperatureCelsius}°C."
                 ActionResult.BatteryAction(speech, info)
             }
 
@@ -456,21 +453,17 @@ class EchoNlpEngine(
     }
 
     private fun isFlashlightOnQuery(query: String): Boolean {
-        return (query.contains("flashlight") || query.contains("torch") || query.contains("light")) &&
-                (query.contains("on") || query.contains("enable") || query.contains("activate") || query.contains("start") ||
-                 query.contains("jalao") || query.contains("chalao") || query.contains("kholo") || query.contains("open") || query.contains("jalado"))
+        return (query.contains("flashlight") || query.contains("torch")) &&
+                (query.contains("on") || query.contains("enable") || query.contains("activate") || query.contains("start"))
     }
 
     private fun isFlashlightOffQuery(query: String): Boolean {
-        return (query.contains("flashlight") || query.contains("torch") || query.contains("light")) &&
-                (query.contains("off") || query.contains("disable") || query.contains("deactivate") || query.contains("stop") ||
-                 query.contains("band") || query.contains("bujhao") || query.contains("bujha"))
+        return (query.contains("flashlight") || query.contains("torch")) &&
+                (query.contains("off") || query.contains("disable") || query.contains("deactivate") || query.contains("stop"))
     }
 
     private fun isFlashlightToggleQuery(query: String): Boolean {
-        return query == "flashlight" || query == "torch" || query == "light" ||
-                query.contains("toggle flashlight") || query.contains("toggle torch") ||
-                query == "torch on" || query == "torch off"
+        return query == "flashlight" || query == "torch" || query.contains("toggle flashlight") || query.contains("toggle torch")
     }
 
     private fun extractNumber(text: String): Int? {
@@ -667,8 +660,6 @@ class EchoNlpEngine(
                 text.startsWith("pause") || text.startsWith("stop music") || text == "stop" ||
                 text.contains("next song") || text.contains("skip song") || text.contains("next track") ||
                 text.contains("previous song") || text.contains("previous track") ||
-                text.contains("on spotify") || text.startsWith("spotify ") ||
-                text.contains("gaana") || text.contains("gana") || text.contains("song chalao") ||
-                text.contains("song bajao") || text.contains("song lagao") || text.contains("agla gaana")
+                text.contains("on spotify") || text.startsWith("spotify ")
     }
 }

@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -55,13 +56,6 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.RecordVoiceOver
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.VolumeMute
-import androidx.compose.material.icons.filled.VolumeDown
-import com.example.data.local.VoicePersona
-import com.example.data.local.AssistantLanguage
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.AssistChip
@@ -145,12 +139,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var nlpEngine: EchoNlpEngine
     private lateinit var voiceManager: EchoVoiceManager
     private lateinit var database: EchoDatabase
+    private lateinit var wakeWordManager: com.example.voice.EchoWakeWordManager
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
             voiceManager.startListening()
+            if (preferences.isWakeWordEnabled) {
+                wakeWordManager.start()
+            }
         }
     }
 
@@ -183,6 +181,11 @@ class MainActivity : ComponentActivity() {
 
         voiceManager = EchoVoiceManager(this) { spokenQuery ->
             executeCommand(spokenQuery)
+        }
+
+        wakeWordManager = com.example.voice.EchoWakeWordManager(this) { detectedPhrase ->
+            Log.d("MainActivity", "Wake word detected in MainActivity: $detectedPhrase")
+            voiceManager.startListening()
         }
 
         // Check & request microphone permission on initial launch so background/long-press services have access
@@ -257,20 +260,34 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        if (preferences.isWakeWordEnabled && ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            wakeWordManager.start()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        wakeWordManager.stop()
     }
 
     private fun executeCommand(query: String) {
         val coroutineScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
         coroutineScope.launch {
+            wakeWordManager.pauseForRecognition()
             voiceManager.setState(AssistantState.THINKING)
             val result = nlpEngine.processQuery(query)
             voiceManager.setLiveTranscript(result.responseText)
-            voiceManager.speak(result.responseText)
+            voiceManager.speak(result.responseText) {
+                if (preferences.isWakeWordEnabled) {
+                    wakeWordManager.resumeAfterRecognition()
+                }
+            }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        wakeWordManager.stop()
         voiceManager.destroy()
     }
 }
@@ -313,17 +330,17 @@ fun MainAssistantDashboard(
     val hasOverlayPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
     val quickActionChips = listOf(
-        Pair("Torch on karo", Icons.Default.FlashlightOn),
-        Pair("Aawaz kam karo", Icons.Default.VolumeDown),
-        Pair("Gaana bajao", Icons.Default.MusicNote),
-        Pair("Ek funny joke sunao", Icons.Default.AutoAwesome),
-        Pair("Battery kitni hai", Icons.Default.Refresh),
-        Pair("Calculate 25 * 4", Icons.Default.Calculate),
-        Pair("Set 5m Timer", Icons.Default.Timer),
         Pair("Explain Quantum Physics", Icons.Default.AutoAwesome),
+        Pair("Tell me a fun science fact", Icons.Default.AutoAwesome),
+        Pair("Calculate 25 * 4", Icons.Default.Calculate),
         Pair("Turn on Flashlight", Icons.Default.FlashlightOn),
+        Pair("Play Music", Icons.Default.MusicNote),
+        Pair("Volume to 80%", Icons.Default.VolumeUp),
+        Pair("Search YouTube", Icons.Default.PlayArrow),
+        Pair("Set 5m Timer", Icons.Default.Timer),
         Pair("Take Note", Icons.Default.Chat),
-        Pair("Search YouTube", Icons.Default.PlayArrow)
+        Pair("Tell me a Joke", Icons.Default.AutoAwesome),
+        Pair("Battery Status", Icons.Default.Refresh)
     )
 
     Scaffold(
@@ -858,6 +875,114 @@ fun MainAssistantDashboard(
                     }
                 }
 
+                // Hands-Free "Hey Echo" Wake Word Detection
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF161E2E))
+                        .padding(14.dp)
+                ) {
+                    var wakeWordEnabled by remember { mutableStateOf(preferences.isWakeWordEnabled) }
+                    var sensitivity by remember { mutableStateOf(preferences.wakeWordSensitivity) }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "🎙️ \"Hey Echo\" Wake Word",
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (wakeWordEnabled) NeonCyan.copy(alpha = 0.2f) else Color.DarkGray)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (wakeWordEnabled) "OFFLINE KWS" else "OFF",
+                                        color = if (wakeWordEnabled) NeonCyan else TextSecondary,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Hands-free low-power on-device voice activation",
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Switch(
+                            checked = wakeWordEnabled,
+                            onCheckedChange = { enable ->
+                                wakeWordEnabled = enable
+                                preferences.isWakeWordEnabled = enable
+                                if (enable && !hasMicPermission) {
+                                    onRequestMicPermission()
+                                }
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = NeonCyan)
+                        )
+                    }
+
+                    if (wakeWordEnabled) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Detection Sensitivity",
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val levels = listOf(
+                                "Balanced" to 0.65f,
+                                "High" to 0.78f,
+                                "Ultra Sensitive" to 0.90f
+                            )
+                            levels.forEach { (label, sensVal) ->
+                                val isSelected = Math.abs(sensitivity - sensVal) < 0.06f
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isSelected) NeonCyan.copy(alpha = 0.25f) else Color(0xFF0F172A))
+                                        .border(
+                                            1.dp,
+                                            if (isSelected) NeonCyan else Color.Transparent,
+                                            RoundedCornerShape(10.dp)
+                                        )
+                                        .clickable {
+                                            sensitivity = sensVal
+                                            preferences.wakeWordSensitivity = sensVal
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = if (isSelected) TextPrimary else TextSecondary,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Persistent Quick Notification Trigger
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -914,132 +1039,25 @@ fun MainAssistantDashboard(
                     )
                 }
 
-                // Voice Response Toggles & Human-like Customization
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF141C2E))
-                        .border(1.dp, Color(0xFF273854), RoundedCornerShape(16.dp))
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                // Voice Response Toggles
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.RecordVoiceOver,
-                                contentDescription = "Human Voice",
-                                tint = NeonCyan,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Column {
-                                Text("Human Voice & Language", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("Ultra-natural neural speech & Hinglish", color = TextSecondary, fontSize = 11.sp)
-                            }
-                        }
-
-                        var ttsEnabled by remember { mutableStateOf(preferences.isTtsEnabled) }
-                        Switch(
-                            checked = ttsEnabled,
-                            onCheckedChange = {
-                                ttsEnabled = it
-                                preferences.isTtsEnabled = it
-                            },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = NeonCyan)
-                        )
+                    Column {
+                        Text("Voice Response (TTS)", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Echo speaks answers aloud", color = TextSecondary, fontSize = 12.sp)
                     }
-
-                    // Assistant Language selector
-                    Text("Recognition & Response Language", color = NeonCyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    var currentLang by remember { mutableStateOf(preferences.assistantLanguage) }
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(AssistantLanguage.values()) { lang ->
-                            val isSelected = currentLang == lang
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isSelected) NeonCyan.copy(alpha = 0.2f) else Color(0xFF1E293B))
-                                    .border(1.dp, if (isSelected) NeonCyan else Color.Transparent, RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        currentLang = lang
-                                        preferences.assistantLanguage = lang
-                                        voiceManager.applyHumanLikeVoice()
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                            ) {
-                                Text(
-                                    text = lang.displayName,
-                                    color = if (isSelected) NeonCyan else TextSecondary,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-
-                    // Human Voice Persona selector
-                    Text("Human Voice Tone & Persona", color = VividViolet, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    var currentPersona by remember { mutableStateOf(preferences.voicePersona) }
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        VoicePersona.values().forEach { persona ->
-                            val isSelected = currentPersona == persona
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(if (isSelected) VividViolet.copy(alpha = 0.2f) else Color(0xFF1B2338))
-                                    .border(1.dp, if (isSelected) VividViolet else Color(0xFF27354E), RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        currentPersona = persona
-                                        preferences.voicePersona = persona
-                                        voiceManager.applyHumanLikeVoice()
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = persona.displayName,
-                                        color = if (isSelected) TextPrimary else TextSecondary,
-                                        fontSize = 13.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                    Text(
-                                        text = persona.description,
-                                        color = TextMuted,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "Selected",
-                                        tint = VividViolet,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Voice preview button
-                    Button(
-                        onClick = {
-                            voiceManager.speak("Namaste! Mai Echo hu, aapka human-like voice assistant. Mai English aur Hinglish dono fluently samajhta hu!")
+                    var ttsEnabled by remember { mutableStateOf(preferences.isTtsEnabled) }
+                    Switch(
+                        checked = ttsEnabled,
+                        onCheckedChange = {
+                            ttsEnabled = it
+                            preferences.isTtsEnabled = it
                         },
-                        modifier = Modifier.fillMaxWidth().testTag("test_voice_preview_btn"),
-                        colors = ButtonDefaults.buttonColors(containerColor = VividViolet),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Test Voice / आवाज चेक करें", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = NeonCyan)
+                    )
                 }
 
                 // Haptic Feedback

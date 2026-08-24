@@ -17,6 +17,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -95,6 +96,7 @@ class EchoFloatingBubbleService : Service() {
     private lateinit var deviceController: DeviceController
     private lateinit var nlpEngine: EchoNlpEngine
     private lateinit var voiceManager: EchoVoiceManager
+    private lateinit var wakeWordManager: com.example.voice.EchoWakeWordManager
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -117,10 +119,19 @@ class EchoFloatingBubbleService : Service() {
             handleSpokenCommand(spokenText)
         }
 
+        wakeWordManager = com.example.voice.EchoWakeWordManager(this) { detectedPhrase ->
+            Log.d("EchoFloatingService", "Wake word detected: $detectedPhrase. Triggering voice assistant.")
+            showOverlayAndStartListening()
+        }
+
         createNotificationChannel()
         updateForegroundState(isMicrophoneActive = false)
 
         observeVoiceState()
+
+        if (preferences.isWakeWordEnabled) {
+            wakeWordManager.start()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -218,6 +229,7 @@ class EchoFloatingBubbleService : Service() {
         }
 
         // Ensure foreground service is designated with MICROPHONE foreground type before starting audio capture
+        wakeWordManager.pauseForRecognition()
         updateForegroundState(isMicrophoneActive = true)
         ensureOverlayAttached(startListeningImmediately = true)
         voiceManager.stopSpeaking()
@@ -390,6 +402,10 @@ class EchoFloatingBubbleService : Service() {
             // Completely hide overlay
             removeOverlayView()
         }
+
+        if (preferences.isWakeWordEnabled) {
+            wakeWordManager.resumeAfterRecognition()
+        }
     }
 
     private fun removeOverlayView() {
@@ -433,6 +449,7 @@ class EchoFloatingBubbleService : Service() {
         cancelAutoDismiss()
         currentProcessingJob?.cancel()
         serviceScope.cancel()
+        wakeWordManager.stop()
         voiceManager.destroy()
         removeOverlayView()
         super.onDestroy()

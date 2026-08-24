@@ -11,44 +11,8 @@ enum class OrbTheme(val displayName: String, val primaryColorHex: Long, val seco
     CYBER_PULSE("Cyber Pulse", 0xFF00F0FF, 0xFF0038FF, 0xFF7000FF)
 }
 
-enum class VoicePersona(val id: String, val displayName: String, val description: String) {
-    NATURAL_INDIAN_FEMALE("en_in_female", "Natural Warm (Hinglish / Indian)", "High-clarity human voice optimized for English & Hinglish"),
-    NATURAL_INDIAN_MALE("en_in_male", "Natural Male (Hinglish / Indian)", "Warm baritone voice with natural Indian cadence"),
-    NATURAL_US_FEMALE("en_us_female", "Natural Female (Global English)", "Smooth conversational human voice"),
-    NATURAL_US_MALE("en_us_male", "Natural Male (Global English)", "Deep conversational human voice"),
-    SYSTEM_DEFAULT("system_default", "Device Neural HD", "Auto-select device's highest quality voice engine")
-}
-
-enum class AssistantLanguage(val code: String, val displayName: String) {
-    HINGLISH_AUTO("en-IN", "English & Hinglish (Recommended)"),
-    ENGLISH_US("en-US", "English (US)"),
-    HINDI_NATIVE("hi-IN", "Hindi (हिन्दी)")
-}
-
 class AssistantPreferences(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("echo_settings", Context.MODE_PRIVATE)
-
-    var assistantLanguage: AssistantLanguage
-        get() {
-            val code = prefs.getString("assistant_language", AssistantLanguage.HINGLISH_AUTO.name)
-            return try {
-                AssistantLanguage.valueOf(code ?: AssistantLanguage.HINGLISH_AUTO.name)
-            } catch (e: Exception) {
-                AssistantLanguage.HINGLISH_AUTO
-            }
-        }
-        set(value) = prefs.edit().putString("assistant_language", value.name).apply()
-
-    var voicePersona: VoicePersona
-        get() {
-            val id = prefs.getString("voice_persona", VoicePersona.NATURAL_INDIAN_FEMALE.name)
-            return try {
-                VoicePersona.valueOf(id ?: VoicePersona.NATURAL_INDIAN_FEMALE.name)
-            } catch (e: Exception) {
-                VoicePersona.NATURAL_INDIAN_FEMALE
-            }
-        }
-        set(value) = prefs.edit().putString("voice_persona", value.name).apply()
 
     var orbTheme: OrbTheme
         get() {
@@ -92,6 +56,18 @@ class AssistantPreferences(context: Context) {
     var isFloatingBubbleEnabled: Boolean
         get() = prefs.getBoolean("floating_bubble_enabled", false)
         set(value) = prefs.edit().putBoolean("floating_bubble_enabled", value).apply()
+
+    var isWakeWordEnabled: Boolean
+        get() = prefs.getBoolean("wake_word_enabled", true)
+        set(value) = prefs.edit().putBoolean("wake_word_enabled", value).apply()
+
+    var wakeWordSensitivity: Float
+        get() = prefs.getFloat("wake_word_sensitivity", 0.70f)
+        set(value) = prefs.edit().putFloat("wake_word_sensitivity", value).apply()
+
+    var wakeWordPhrase: String
+        get() = prefs.getString("wake_word_phrase", "Hey Echo") ?: "Hey Echo"
+        set(value) = prefs.edit().putString("wake_word_phrase", value).apply()
 
     var customGeminiApiKey: String
         get() = prefs.getString("custom_gemini_api_key", "") ?: ""
