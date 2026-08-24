@@ -936,7 +936,7 @@ fun MainAssistantDashboard(
                 ) {
                     Column {
                         Text("Haptic Feedback", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Text("Vibrate on wake & command", color = TextSecondary, fontSize = 12.sp)
+                        Text("Vibrate on start & command", color = TextSecondary, fontSize = 12.sp)
                     }
                     var hapticsEnabled by remember { mutableStateOf(preferences.isHapticsEnabled) }
                     Switch(

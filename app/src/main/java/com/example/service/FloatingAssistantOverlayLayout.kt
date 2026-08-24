@@ -6,27 +6,21 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
-import android.os.Handler
-import android.os.Looper
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.WindowManager
-import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.content.ContextCompat
-import com.example.R
 import com.example.voice.AssistantState
 
 /**
  * Floating system overlay view group housing the interactive FloatingOrbView
- * and a sleek floating Glassmorphic HUD capsule for live transcription and responses.
+ * anchored in the bottom centre with a glassmorphic HUD pill card resting above the orb.
  */
 class FloatingAssistantOverlayLayout @JvmOverloads constructor(
     context: Context,
@@ -46,8 +40,6 @@ class FloatingAssistantOverlayLayout @JvmOverloads constructor(
     private var onDragPositionChanged: ((Int, Int) -> Unit)? = null
     private var onSnapToEdge: (() -> Unit)? = null
 
-    private var initialX = 0
-    private var initialY = 0
     private var touchStartX = 0f
     private var touchStartY = 0f
     private var isDragging = false
@@ -58,36 +50,28 @@ class FloatingAssistantOverlayLayout @JvmOverloads constructor(
         clipChildren = false
         clipToPadding = false
 
-        // 1. Interactive Animated Orb
-        val orbSizePx = (72 * density).toInt()
-        orbView = FloatingOrbView(context).apply {
-            layoutParams = LayoutParams(orbSizePx, orbSizePx).apply {
-                gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            }
-        }
-
-        // 2. Response & Transcription HUD Capsule
+        // 1. Response & Transcription HUD Capsule (Anchored ABOVE the Orb)
         pillCard = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            val padH = (14 * density).toInt()
-            val padV = (10 * density).toInt()
+            val padH = (16 * density).toInt()
+            val padV = (12 * density).toInt()
             setPadding(padH, padV, padH, padV)
 
             // Glassmorphic dark nebula rounded background
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#E60F172A")) // Slate 900 with 90% opacity
-                cornerRadius = 18 * density
-                setStroke((1.5f * density).toInt(), Color.parseColor("#3338BDF8")) // Cyan border accent
+                setColor(Color.parseColor("#EE0B1120")) // Slate 950 with 93% opacity
+                cornerRadius = 20 * density
+                setStroke((1.5f * density).toInt(), Color.parseColor("#3300F5FF")) // Neon Cyan border accent
             }
 
             layoutParams = LayoutParams(
-                (280 * density).toInt(),
+                (310 * density).toInt(),
                 LayoutParams.WRAP_CONTENT
             ).apply {
-                gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-                topMargin = (76 * density).toInt() // Directly below the orb
+                gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
+                bottomMargin = (112 * density).toInt() // Positioned directly above the larger orb
             }
-            elevation = 12 * density
+            elevation = 16 * density
         }
 
         // Header Row in Pill (State Badge + Close button)
@@ -115,8 +99,9 @@ class FloatingAssistantOverlayLayout @JvmOverloads constructor(
         closeButton = ImageView(context).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             setColorFilter(Color.parseColor("#94A3B8"))
-            val btnSize = (20 * density).toInt()
+            val btnSize = (22 * density).toInt()
             layoutParams = LinearLayout.LayoutParams(btnSize, btnSize)
+            setPadding((2 * density).toInt(), (2 * density).toInt(), (2 * density).toInt(), (2 * density).toInt())
             setOnClickListener {
                 onCloseClicked?.invoke()
             }
@@ -129,9 +114,9 @@ class FloatingAssistantOverlayLayout @JvmOverloads constructor(
         transcriptText = TextView(context).apply {
             text = "Listening... Speak your command"
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setLineSpacing(2 * density, 1f)
-            maxLines = 4
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
+            setLineSpacing(2.5f * density, 1f)
+            maxLines = 5
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -142,6 +127,15 @@ class FloatingAssistantOverlayLayout @JvmOverloads constructor(
 
         pillCard.addView(headerRow)
         pillCard.addView(transcriptText)
+
+        // 2. Interactive Animated Large Orb (Anchored at Bottom Center)
+        val orbSizePx = (96 * density).toInt()
+        orbView = FloatingOrbView(context).apply {
+            layoutParams = LayoutParams(orbSizePx, orbSizePx).apply {
+                gravity = Gravity.CENTER_HORIZONTAL or Gravity.BOTTOM
+                bottomMargin = (8 * density).toInt()
+            }
+        }
 
         addView(pillCard)
         addView(orbView)
@@ -167,33 +161,33 @@ class FloatingAssistantOverlayLayout @JvmOverloads constructor(
             AssistantState.LISTENING -> {
                 stateBadgeText.text = "🎤 Listening..."
                 stateBadgeText.setTextColor(Color.parseColor("#00F5FF"))
-                (pillCard.background as? GradientDrawable)?.setStroke((1.5f * density).toInt(), Color.parseColor("#3300F5FF"))
+                (pillCard.background as? GradientDrawable)?.setStroke((1.5f * density).toInt(), Color.parseColor("#4D00F5FF"))
                 if (message != null) transcriptText.text = message
                 showPill(true)
             }
             AssistantState.THINKING -> {
-                stateBadgeText.text = "✨ Thinking..."
+                stateBadgeText.text = "✨ Processing..."
                 stateBadgeText.setTextColor(Color.parseColor("#C084FC"))
-                (pillCard.background as? GradientDrawable)?.setStroke((1.5f * density).toInt(), Color.parseColor("#33C084FC"))
+                (pillCard.background as? GradientDrawable)?.setStroke((1.5f * density).toInt(), Color.parseColor("#4DC084FC"))
                 if (message != null) transcriptText.text = message
                 showPill(true)
             }
             AssistantState.SPEAKING -> {
                 stateBadgeText.text = "🔊 Echo Assistant"
                 stateBadgeText.setTextColor(Color.parseColor("#34D399"))
-                (pillCard.background as? GradientDrawable)?.setStroke((1.5f * density).toInt(), Color.parseColor("#3334D399"))
+                (pillCard.background as? GradientDrawable)?.setStroke((1.5f * density).toInt(), Color.parseColor("#4D34D399"))
                 if (message != null) transcriptText.text = message
                 showPill(true)
             }
             AssistantState.ERROR -> {
                 stateBadgeText.text = "⚠️ Notice"
                 stateBadgeText.setTextColor(Color.parseColor("#F87171"))
-                (pillCard.background as? GradientDrawable)?.setStroke((1.5f * density).toInt(), Color.parseColor("#33F87171"))
+                (pillCard.background as? GradientDrawable)?.setStroke((1.5f * density).toInt(), Color.parseColor("#4DF87171"))
                 if (message != null) transcriptText.text = message
                 showPill(true)
             }
             AssistantState.IDLE -> {
-                stateBadgeText.text = "Echo"
+                stateBadgeText.text = "Echo Assistant"
                 stateBadgeText.setTextColor(Color.parseColor("#38BDF8"))
                 if (message != null) {
                     transcriptText.text = message
@@ -211,18 +205,21 @@ class FloatingAssistantOverlayLayout @JvmOverloads constructor(
             pillCard.alpha = 0f
             pillCard.scaleX = 0.85f
             pillCard.scaleY = 0.85f
+            pillCard.translationY = 20 * density
             pillCard.animate()
                 .alpha(1f)
                 .scaleX(1f)
                 .scaleY(1f)
-                .setDuration(220L)
-                .setInterpolator(OvershootInterpolator(1.2f))
+                .translationY(0f)
+                .setDuration(240L)
+                .setInterpolator(OvershootInterpolator(1.15f))
                 .start()
         } else if (!show && pillCard.visibility == View.VISIBLE) {
             pillCard.animate()
                 .alpha(0f)
                 .scaleX(0.85f)
                 .scaleY(0.85f)
+                .translationY(15 * density)
                 .setDuration(180L)
                 .setListener(object : AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: Animator) {

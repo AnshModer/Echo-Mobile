@@ -249,6 +249,9 @@ class EchoFloatingBubbleService : Service() {
                 WindowManager.LayoutParams.TYPE_PHONE
             }
 
+            val density = resources.displayMetrics.density
+            val bottomMarginPx = (18 * density).toInt()
+
             windowLayoutParams = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -257,9 +260,9 @@ class EchoFloatingBubbleService : Service() {
                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                x = initialPosX
-                y = initialPosY
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                x = 0
+                y = bottomMarginPx
             }
 
             overlayLayout = FloatingAssistantOverlayLayout(this).apply {

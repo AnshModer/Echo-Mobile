@@ -223,7 +223,7 @@ fun RedmiSetupGuide(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "• Floating Echo Orb: A glowing, draggable Siri orb that stays visible over other apps. Tap to instantly talk.\n• Quick Settings Tile: Swipe down from the top of your screen, edit tiles, and add 'Echo Assistant' for 1-tap popup anywhere.\n• Power Button: Hold power for 0.5s to trigger the Siri circle overlay instantly.",
+                    text = "• Bottom Center Floating Echo Orb: A glowing, enlarged Siri orb anchored at the bottom center over other apps. Tap to instantly talk.\n• Quick Settings Tile: Swipe down from the top of your screen, edit tiles, and add 'Echo Assistant' for 1-tap popup anywhere.\n• Power Button: Hold power for 0.5s to trigger the Siri circle overlay instantly.",
                     color = TextSecondary,
                     fontSize = 12.sp,
                     lineHeight = 18.sp
