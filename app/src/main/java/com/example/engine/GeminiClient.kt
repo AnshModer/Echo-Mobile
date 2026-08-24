@@ -74,183 +74,183 @@ class GeminiClient(private val context: Context? = null) {
         }
 
         try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$key"
-            val testBody = JSONObject().apply {
-                put("contents", JSONArray().put(JSONObject().apply {
-                    put("parts", JSONArray().put(JSONObject().apply {
-                        put("text", "Say: 'Gemini connected.'")
-                    }))
-                }))
-            }
-
+            // Test 1: Query the models endpoint (official Google API key validation method)
+            val url = "https://generativelanguage.googleapis.com/v1beta/models?key=$key"
             val request = Request.Builder()
                 .url(url)
-                .post(testBody.toString().toRequestBody("application/json".toMediaType()))
+                .get()
                 .build()
 
             val response = client.newCall(request).execute()
             if (response.isSuccessful) {
-                Pair(true, "API Key verified! Gemini 2.5 Flash is active & responding.")
+                return@withContext Pair(true, "API Key verified! Gemini Intelligence is active & ready.")
+            }
+
+            val code = response.code
+            val bodyStr = response.body?.string() ?: ""
+            if (code == 400 || code == 403) {
+                return@withContext Pair(false, "Invalid API Key or unauthorized ($code). Check your key from Google AI Studio.")
             } else {
-                val code = response.code
-                val bodyStr = response.body?.string() ?: ""
-                val msg = if (code == 400 || code == 403) "Invalid API Key or unauthorized ($code)." else "Connection error ($code)."
-                Pair(false, msg)
+                return@withContext Pair(false, "Connection error ($code): ${bodyStr.take(120)}")
             }
         } catch (e: Exception) {
             Pair(false, "Connection error: ${e.localizedMessage ?: "Timeout"}")
         }
     }
 
+    private val supportedFlashModels = listOf("gemini-2.5-flash", "gemini-3.5-flash", "gemini-flash-latest")
+
     /**
-     * Uses Gemini 3.5 Flash to understand user requests, even if imperfect, slang, casual,
+     * Uses Gemini to understand user requests, even if imperfect, slang, casual,
      * misspelled, or indirect, and maps them to concrete device tasks and actions.
      */
     suspend fun interpretAndExecuteTask(rawQuery: String): GeminiTaskIntent? = withContext(Dispatchers.IO) {
         val apiKey = getActiveApiKey()
         if (apiKey.isBlank()) return@withContext null
 
-        try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey"
+        for (modelName in supportedFlashModels) {
+            try {
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
 
-            val systemInstruction = """
-                You are Echo, an intelligent Android digital voice assistant.
-                Your task is to understand what the user wants to do on their phone, even if they speak imperfectly, slang, informally, indirectly, casually, or in mixed Hindi/English phrases.
+                val systemInstruction = """
+                    You are Echo, an intelligent Android digital voice assistant.
+                    Your task is to understand what the user wants to do on their phone, even if they speak imperfectly, slang, informally, indirectly, casually, or in mixed Hindi/English phrases.
 
-                You must categorize the intent into one of the following ACTIONS and provide parameters and a natural spoken voice response:
+                    You must categorize the intent into one of the following ACTIONS and provide parameters and a natural spoken voice response:
 
-                ACTIONS:
-                1. "FLASHLIGHT": Toggle or set flashlight/torch (e.g. "turn on light", "it's dark", "torch on karo", "turn off the torch", "give me light").
-                   Parameters: "state": true/false
-                2. "VOLUME": Adjust media volume or mute/unmute (e.g. "it's too loud", "turn it up", "mute", "unmute", "volume 70%", "sound kam karo", "lower volume").
-                   Parameters: "volumeDirection": "UP"|"DOWN"|"MUTE"|"UNMUTE"|"SET", "level": 0-100 (integer)
-                3. "BATTERY": Battery level and charging status (e.g. "how much juice is left", "battery percent", "is phone charging", "battery kitni hai").
-                   Parameters: none
-                4. "APP_LAUNCH": Open or start any installed app (e.g. "take a photo" or "selfie" -> camera, "open whatsapp", "launch calculator", "chrome", "insta", "gallery", "clock", "settings", etc.).
-                   Parameters: "appName": name of app (e.g. "camera", "whatsapp", "instagram", "calculator", "gallery", "chrome")
-                5. "TIMER": Start a countdown timer (e.g. "boil eggs for 5 mins", "timer for 30 seconds", "remind in 10 minutes").
-                   Parameters: "timerSeconds": total integer seconds
-                6. "ALARM": Set an alarm (e.g. "wake me up at 6:30 tomorrow", "alarm at 7 am", "set alarm for 8:15").
-                   Parameters: "alarmHour": 0-23, "alarmMinute": 0-59
-                7. "NOTE": Write or save a note / reminder memo (e.g. "note down: meeting with boss tomorrow", "remember to buy milk", "save note").
-                   Parameters: "noteContent": text of note
-                8. "CALL": Make a phone call (e.g. "call mom", "dial 9876543210", "phone John").
-                   Parameters: "callTarget": contact name or phone number
-                9. "SMS": Send an SMS text message (e.g. "text mom I am coming home", "sms to Rahul: reached safely").
-                   Parameters: "smsTarget": contact or number, "smsBody": message text
-                10. "SETTINGS": Open system settings (e.g. "turn on wifi settings", "bluetooth settings", "change display brightness", "assistant settings", "power button shortcuts").
-                    Parameters: "settingsTarget": "WIFI"|"BLUETOOTH"|"DISPLAY"|"SOUND"|"BATTERY"|"ASSISTANT"|"GESTURE"
-                11. "NAVIGATION": Open map directions (e.g. "take me to central park", "directions to nearest hospital", "navigate to airport").
-                    Parameters: "destination": place name or address
-                12. "WEB_SEARCH": Search the web / Google (e.g. "search for latest news", "google quantum computing").
-                    Parameters: "searchQuery": query string
-                13. "YOUTUBE": Search or play video/music on YouTube (e.g. "play coldplay yellow", "watch cat videos on youtube", "youtube arijit singh").
-                    Parameters: "youtubeQuery": video or artist query
-                14. "MEDIA": Music controls (e.g. "pause music", "stop song", "next song", "skip", "play something good on spotify").
-                    Parameters: "mediaCommand": "PLAY"|"PAUSE"|"NEXT"|"PREVIOUS"|"SPOTIFY", "mediaTarget": optional song name
-                15. "CALCULATION": Math calculation (e.g. "what is 24 times 15", "calculate 15 percent of 450").
-                    Parameters: "expression": "24 * 15", "calculationResult": "360"
-                16. "CHAT": General conversational queries, chit-chat, knowledge questions, explanations, advice, jokes, facts (e.g. "who was Albert Einstein", "tell me a joke", "how does photosynthesis work", "hello how are you").
-                    Parameters: none
+                    ACTIONS:
+                    1. "FLASHLIGHT": Toggle or set flashlight/torch (e.g. "turn on light", "it's dark", "torch on karo", "turn off the torch", "give me light").
+                       Parameters: "state": true/false
+                    2. "VOLUME": Adjust media volume or mute/unmute (e.g. "it's too loud", "turn it up", "mute", "unmute", "volume 70%", "sound kam karo", "lower volume").
+                       Parameters: "volumeDirection": "UP"|"DOWN"|"MUTE"|"UNMUTE"|"SET", "level": 0-100 (integer)
+                    3. "BATTERY": Battery level and charging status (e.g. "how much juice is left", "battery percent", "is phone charging", "battery kitni hai").
+                       Parameters: none
+                    4. "APP_LAUNCH": Open or start any installed app (e.g. "take a photo" or "selfie" -> camera, "open whatsapp", "launch calculator", "chrome", "insta", "gallery", "clock", "settings", etc.).
+                       Parameters: "appName": name of app (e.g. "camera", "whatsapp", "instagram", "calculator", "gallery", "chrome")
+                    5. "TIMER": Start a countdown timer (e.g. "boil eggs for 5 mins", "timer for 30 seconds", "remind in 10 minutes").
+                       Parameters: "timerSeconds": total integer seconds
+                    6. "ALARM": Set an alarm (e.g. "wake me up at 6:30 tomorrow", "alarm at 7 am", "set alarm for 8:15").
+                       Parameters: "alarmHour": 0-23, "alarmMinute": 0-59
+                    7. "NOTE": Write or save a note / reminder memo (e.g. "note down: meeting with boss tomorrow", "remember to buy milk", "save note").
+                       Parameters: "noteContent": text of note
+                    8. "CALL": Make a phone call (e.g. "call mom", "dial 9876543210", "phone John").
+                       Parameters: "callTarget": contact name or phone number
+                    9. "SMS": Send an SMS text message (e.g. "text mom I am coming home", "sms to Rahul: reached safely").
+                       Parameters: "smsTarget": contact or number, "smsBody": message text
+                    10. "SETTINGS": Open system settings (e.g. "turn on wifi settings", "bluetooth settings", "change display brightness", "assistant settings", "power button shortcuts").
+                        Parameters: "settingsTarget": "WIFI"|"BLUETOOTH"|"DISPLAY"|"SOUND"|"BATTERY"|"ASSISTANT"|"GESTURE"
+                    11. "NAVIGATION": Open map directions (e.g. "take me to central park", "directions to nearest hospital", "navigate to airport").
+                        Parameters: "destination": place name or address
+                    12. "WEB_SEARCH": Search the web / Google (e.g. "search for latest news", "google quantum computing").
+                        Parameters: "searchQuery": query string
+                    13. "YOUTUBE": Search or play video/music on YouTube (e.g. "play coldplay yellow", "watch cat videos on youtube", "youtube arijit singh").
+                        Parameters: "youtubeQuery": video or artist query
+                    14. "MEDIA": Music controls (e.g. "pause music", "stop song", "next song", "skip", "play something good on spotify").
+                        Parameters: "mediaCommand": "PLAY"|"PAUSE"|"NEXT"|"PREVIOUS"|"SPOTIFY", "mediaTarget": optional song name
+                    15. "CALCULATION": Math calculation (e.g. "what is 24 times 15", "calculate 15 percent of 450").
+                        Parameters: "expression": "24 * 15", "calculationResult": "360"
+                    16. "CHAT": General conversational queries, chit-chat, knowledge questions, explanations, advice, jokes, facts (e.g. "who was Albert Einstein", "tell me a joke", "how does photosynthesis work", "hello how are you").
+                        Parameters: none
 
-                Return a JSON object with this exact schema:
-                {
-                  "action": "<ACTION_NAME>",
-                  "state": true/false,
-                  "level": 0-100,
-                  "volumeDirection": "UP"|"DOWN"|"MUTE"|"UNMUTE"|"SET",
-                  "appName": "app name",
-                  "timerSeconds": 180,
-                  "alarmHour": 7,
-                  "alarmMinute": 30,
-                  "noteContent": "note string",
-                  "callTarget": "name or number",
-                  "smsTarget": "name or number",
-                  "smsBody": "message string",
-                  "settingsTarget": "WIFI"|"BLUETOOTH"|"DISPLAY"|"SOUND"|"BATTERY"|"ASSISTANT"|"GESTURE",
-                  "destination": "place string",
-                  "searchQuery": "query string",
-                  "youtubeQuery": "query string",
-                  "mediaCommand": "PLAY"|"PAUSE"|"NEXT"|"PREVIOUS"|"SPOTIFY",
-                  "mediaTarget": "song string",
-                  "expression": "math string",
-                  "calculationResult": "result string",
-                  "spokenResponse": "Short natural voice response (1-2 sentences maximum, never use asterisks, markdown, bullets, or emojis as this is spoken by TTS)."
-                }
-            """.trimIndent()
+                    Return a JSON object with this exact schema:
+                    {
+                      "action": "<ACTION_NAME>",
+                      "state": true/false,
+                      "level": 0-100,
+                      "volumeDirection": "UP"|"DOWN"|"MUTE"|"UNMUTE"|"SET",
+                      "appName": "app name",
+                      "timerSeconds": 180,
+                      "alarmHour": 7,
+                      "alarmMinute": 30,
+                      "noteContent": "note string",
+                      "callTarget": "name or number",
+                      "smsTarget": "name or number",
+                      "smsBody": "message string",
+                      "settingsTarget": "WIFI"|"BLUETOOTH"|"DISPLAY"|"SOUND"|"BATTERY"|"ASSISTANT"|"GESTURE",
+                      "destination": "place string",
+                      "searchQuery": "query string",
+                      "youtubeQuery": "query string",
+                      "mediaCommand": "PLAY"|"PAUSE"|"NEXT"|"PREVIOUS"|"SPOTIFY",
+                      "mediaTarget": "song string",
+                      "expression": "math string",
+                      "calculationResult": "result string",
+                      "spokenResponse": "Short natural voice response (1-2 sentences maximum, never use asterisks, markdown, bullets, or emojis as this is spoken by TTS)."
+                    }
+                """.trimIndent()
 
-            val userContent = JSONObject().apply {
-                put("role", "user")
-                put("parts", JSONArray().apply {
-                    put(JSONObject().apply { put("text", "User spoken request: \"$rawQuery\"") })
-                })
-            }
-
-            val jsonBody = JSONObject().apply {
-                put("contents", JSONArray().put(userContent))
-                put("systemInstruction", JSONObject().apply {
+                val userContent = JSONObject().apply {
+                    put("role", "user")
                     put("parts", JSONArray().apply {
-                        put(JSONObject().apply { put("text", systemInstruction) })
+                        put(JSONObject().apply { put("text", "User spoken request: \"$rawQuery\"") })
                     })
-                })
-                put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.2)
-                    put("responseMimeType", "application/json")
-                    put("maxOutputTokens", 400)
-                })
+                }
+
+                val jsonBody = JSONObject().apply {
+                    put("contents", JSONArray().put(userContent))
+                    put("systemInstruction", JSONObject().apply {
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply { put("text", systemInstruction) })
+                        })
+                    })
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.2)
+                        put("responseMimeType", "application/json")
+                        put("maxOutputTokens", 400)
+                    })
+                }
+
+                val request = Request.Builder()
+                    .url(url)
+                    .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    continue // Try fallback model
+                }
+
+                val responseBody = response.body?.string() ?: continue
+                val root = JSONObject(responseBody)
+                val candidates = root.optJSONArray("candidates")
+                val firstCandidate = candidates?.optJSONObject(0)
+                val contentObj = firstCandidate?.optJSONObject("content")
+                val partsArr = contentObj?.optJSONArray("parts")
+                val rawJsonText = partsArr?.optJSONObject(0)?.optString("text")
+
+                if (rawJsonText.isNullOrBlank()) continue
+
+                val json = JSONObject(rawJsonText.trim())
+                val action = json.optString("action", "CHAT").uppercase()
+                val spokenResponse = cleanForSpeech(json.optString("spokenResponse", ""))
+
+                return@withContext GeminiTaskIntent(
+                    action = action,
+                    state = if (json.has("state")) json.optBoolean("state") else null,
+                    level = if (json.has("level")) json.optInt("level") else null,
+                    volumeDirection = if (json.has("volumeDirection")) json.optString("volumeDirection") else null,
+                    appName = if (json.has("appName")) json.optString("appName") else null,
+                    timerSeconds = if (json.has("timerSeconds")) json.optInt("timerSeconds") else null,
+                    alarmHour = if (json.has("alarmHour")) json.optInt("alarmHour") else null,
+                    alarmMinute = if (json.has("alarmMinute")) json.optInt("alarmMinute") else null,
+                    noteContent = if (json.has("noteContent")) json.optString("noteContent") else null,
+                    callTarget = if (json.has("callTarget")) json.optString("callTarget") else null,
+                    smsTarget = if (json.has("smsTarget")) json.optString("smsTarget") else null,
+                    smsBody = if (json.has("smsBody")) json.optString("smsBody") else null,
+                    settingsTarget = if (json.has("settingsTarget")) json.optString("settingsTarget") else null,
+                    searchQuery = if (json.has("searchQuery")) json.optString("searchQuery") else null,
+                    destination = if (json.has("destination")) json.optString("destination") else null,
+                    mediaCommand = if (json.has("mediaCommand")) json.optString("mediaCommand") else null,
+                    mediaTarget = if (json.has("mediaTarget")) json.optString("mediaTarget") else null,
+                    youtubeQuery = if (json.has("youtubeQuery")) json.optString("youtubeQuery") else null,
+                    expression = if (json.has("expression")) json.optString("expression") else null,
+                    calculationResult = if (json.has("calculationResult")) json.optString("calculationResult") else null,
+                    spokenResponse = if (spokenResponse.isNotBlank()) spokenResponse else "Done."
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-
-            val request = Request.Builder()
-                .url(url)
-                .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                return@withContext null
-            }
-
-            val responseBody = response.body?.string() ?: return@withContext null
-            val root = JSONObject(responseBody)
-            val candidates = root.optJSONArray("candidates")
-            val firstCandidate = candidates?.optJSONObject(0)
-            val contentObj = firstCandidate?.optJSONObject("content")
-            val partsArr = contentObj?.optJSONArray("parts")
-            val rawJsonText = partsArr?.optJSONObject(0)?.optString("text")
-
-            if (rawJsonText.isNullOrBlank()) return@withContext null
-
-            val json = JSONObject(rawJsonText.trim())
-            val action = json.optString("action", "CHAT").uppercase()
-            val spokenResponse = cleanForSpeech(json.optString("spokenResponse", ""))
-
-            GeminiTaskIntent(
-                action = action,
-                state = if (json.has("state")) json.optBoolean("state") else null,
-                level = if (json.has("level")) json.optInt("level") else null,
-                volumeDirection = if (json.has("volumeDirection")) json.optString("volumeDirection") else null,
-                appName = if (json.has("appName")) json.optString("appName") else null,
-                timerSeconds = if (json.has("timerSeconds")) json.optInt("timerSeconds") else null,
-                alarmHour = if (json.has("alarmHour")) json.optInt("alarmHour") else null,
-                alarmMinute = if (json.has("alarmMinute")) json.optInt("alarmMinute") else null,
-                noteContent = if (json.has("noteContent")) json.optString("noteContent") else null,
-                callTarget = if (json.has("callTarget")) json.optString("callTarget") else null,
-                smsTarget = if (json.has("smsTarget")) json.optString("smsTarget") else null,
-                smsBody = if (json.has("smsBody")) json.optString("smsBody") else null,
-                settingsTarget = if (json.has("settingsTarget")) json.optString("settingsTarget") else null,
-                searchQuery = if (json.has("searchQuery")) json.optString("searchQuery") else null,
-                destination = if (json.has("destination")) json.optString("destination") else null,
-                mediaCommand = if (json.has("mediaCommand")) json.optString("mediaCommand") else null,
-                mediaTarget = if (json.has("mediaTarget")) json.optString("mediaTarget") else null,
-                youtubeQuery = if (json.has("youtubeQuery")) json.optString("youtubeQuery") else null,
-                expression = if (json.has("expression")) json.optString("expression") else null,
-                calculationResult = if (json.has("calculationResult")) json.optString("calculationResult") else null,
-                spokenResponse = if (spokenResponse.isNotBlank()) spokenResponse else "Done."
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
         }
+        null
     }
 
     suspend fun askAssistant(prompt: String, conversationContext: String = ""): String = withContext(Dispatchers.IO) {
@@ -261,76 +261,77 @@ class GeminiClient(private val context: Context? = null) {
             return@withContext getOfflineAiResponse(prompt)
         }
 
-        try {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey"
+        for (modelName in supportedFlashModels) {
+            try {
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
 
-            val systemInstruction = """
-                You are Echo, an intelligent, sleek, fast, and warm digital voice assistant for Android.
-                You understand voice queries, chit-chat, knowledge questions, explanations, and advice.
-                Respond with concise, friendly, and natural conversational answers crafted specifically for speech playback (1 to 3 short sentences maximum unless the user explicitly asks for a long detailed explanation).
-                CRITICAL: Never output markdown syntax, asterisks, bullet points, hashtags, emojis, or code blocks because this text is read aloud by Text-To-Speech. Speak naturally as a human assistant.
-            """.trimIndent()
+                val systemInstruction = """
+                    You are Echo, an intelligent, sleek, fast, and warm digital voice assistant for Android.
+                    You understand voice queries, chit-chat, knowledge questions, explanations, and advice.
+                    Respond with concise, friendly, and natural conversational answers crafted specifically for speech playback (1 to 3 short sentences maximum unless the user explicitly asks for a long detailed explanation).
+                    CRITICAL: Never output markdown syntax, asterisks, bullet points, hashtags, emojis, or code blocks because this text is read aloud by Text-To-Speech. Speak naturally as a human assistant.
+                """.trimIndent()
 
-            val contentsArray = JSONArray()
-            
-            if (conversationContext.isNotBlank()) {
-                val ctxContent = JSONObject().apply {
+                val contentsArray = JSONArray()
+                
+                if (conversationContext.isNotBlank()) {
+                    val ctxContent = JSONObject().apply {
+                        put("role", "user")
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply { put("text", "Context: $conversationContext") })
+                        })
+                    }
+                    contentsArray.put(ctxContent)
+                }
+
+                val userContent = JSONObject().apply {
                     put("role", "user")
                     put("parts", JSONArray().apply {
-                        put(JSONObject().apply { put("text", "Context: $conversationContext") })
+                        put(JSONObject().apply { put("text", prompt) })
                     })
                 }
-                contentsArray.put(ctxContent)
-            }
+                contentsArray.put(userContent)
 
-            val userContent = JSONObject().apply {
-                put("role", "user")
-                put("parts", JSONArray().apply {
-                    put(JSONObject().apply { put("text", prompt) })
-                })
-            }
-            contentsArray.put(userContent)
-
-            val jsonBody = JSONObject().apply {
-                put("contents", contentsArray)
-                put("systemInstruction", JSONObject().apply {
-                    put("parts", JSONArray().apply {
-                        put(JSONObject().apply { put("text", systemInstruction) })
+                val jsonBody = JSONObject().apply {
+                    put("contents", contentsArray)
+                    put("systemInstruction", JSONObject().apply {
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().apply { put("text", systemInstruction) })
+                        })
                     })
-                })
-                put("generationConfig", JSONObject().apply {
-                    put("temperature", 0.7)
-                    put("maxOutputTokens", 300)
-                })
+                    put("generationConfig", JSONObject().apply {
+                        put("temperature", 0.7)
+                        put("maxOutputTokens", 300)
+                    })
+                }
+
+                val request = Request.Builder()
+                    .url(url)
+                    .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    continue // Try fallback model
+                }
+
+                val responseBody = response.body?.string() ?: continue
+                val root = JSONObject(responseBody)
+                val candidates = root.optJSONArray("candidates")
+                val firstCandidate = candidates?.optJSONObject(0)
+                val contentObj = firstCandidate?.optJSONObject("content")
+                val partsArr = contentObj?.optJSONArray("parts")
+                val text = partsArr?.optJSONObject(0)?.optString("text")
+
+                if (!text.isNullOrBlank()) {
+                    return@withContext cleanForSpeech(text.trim())
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-
-            val request = Request.Builder()
-                .url(url)
-                .post(jsonBody.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                return@withContext getOfflineAiResponse(prompt)
-            }
-
-            val responseBody = response.body?.string() ?: return@withContext getOfflineAiResponse(prompt)
-            val root = JSONObject(responseBody)
-            val candidates = root.optJSONArray("candidates")
-            val firstCandidate = candidates?.optJSONObject(0)
-            val contentObj = firstCandidate?.optJSONObject("content")
-            val partsArr = contentObj?.optJSONArray("parts")
-            val text = partsArr?.optJSONObject(0)?.optString("text")
-
-            if (!text.isNullOrBlank()) {
-                cleanForSpeech(text.trim())
-            } else {
-                getOfflineAiResponse(prompt)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            getOfflineAiResponse(prompt)
         }
+
+        getOfflineAiResponse(prompt)
     }
 
     private fun cleanForSpeech(rawText: String): String {

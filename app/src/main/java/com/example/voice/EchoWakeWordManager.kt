@@ -2,43 +2,32 @@ package com.example.voice
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.example.data.local.AssistantPreferences
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.log10
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
- * Lightweight, zero-cloud, on-device Keyword Spotting (KWS) engine for "Hey Echo" and "Echo".
+ * Robust, high-precision On-Device Wake-Word Engine.
  *
- * Employs a dual-tier low-power pipeline:
- * 1. Low-overhead Voice Activity Detection (VAD) with energy & zero-crossing rate gating.
- * 2. Temporal Acoustic & Mel-Spectral Phonetic Pattern Matcher calibrated for the phonetic
- *    envelope of /h eɪ ɛ k oʊ/ ("Hey Echo") and /ɛ k oʊ/ ("Echo").
- * 3. Dynamic noise-floor tracking to adapt to noisy environments without false triggers.
+ * Exclusively activates when the user speaks "Hey Echo" or "Echo".
+ * Employs continuous on-device speech keyword spotting so background noises,
+ * random room conversations, TV audio, and unrelated words never trigger activation.
  */
 class EchoWakeWordManager(
     private val context: Context,
@@ -46,10 +35,19 @@ class EchoWakeWordManager(
 ) {
     companion object {
         private const val TAG = "EchoWakeWordManager"
-        private const val SAMPLE_RATE = 16000
-        private const val FRAME_SIZE_SAMPLES = 512 // 32ms frames @ 16kHz
-        private const val TRIGGER_DEBOUNCE_MS = 3500L
-        private const val HISTORY_FRAME_COUNT = 48 // ~1.5s sliding window
+        private const val TRIGGER_DEBOUNCE_MS = 2500L
+        private val WAKE_PHRASES = listOf(
+            "hey echo",
+            "he echo",
+            "hay echo",
+            "a echo",
+            "hi echo",
+            "echo",
+            "ekko",
+            "ey echo",
+            "ok echo",
+            "hello echo"
+        )
     }
 
     private val preferences = AssistantPreferences(context)
@@ -57,21 +55,13 @@ class EchoWakeWordManager(
     private val isRunning = AtomicBoolean(false)
     private val isPausedForRecognition = AtomicBoolean(false)
 
-    private var audioRecord: AudioRecord? = null
-    private var listeningJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.Default)
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var restartRunnable: Runnable? = null
 
     private val _isListening = MutableStateFlow(false)
     val isListening: StateFlow<Boolean> = _isListening.asStateFlow()
 
     private var lastTriggerTimestamp = 0L
-    private var noiseFloorEnergy = 450.0
-
-    // Acoustic sliding buffer for temporal phoneme verification (~1.5 seconds)
-    private val energyHistory = DoubleArray(HISTORY_FRAME_COUNT)
-    private val zcrHistory = DoubleArray(HISTORY_FRAME_COUNT)
-    private val highFreqEnergyRatioHistory = DoubleArray(HISTORY_FRAME_COUNT)
-    private var historyIndex = 0
 
     fun start() {
         if (isRunning.get()) return
@@ -90,28 +80,33 @@ class EchoWakeWordManager(
         isPausedForRecognition.set(false)
         _isListening.value = true
 
-        listeningJob = scope.launch {
-            runAudioLoop()
+        mainHandler.post {
+            initiateContinuousListener()
         }
-        Log.i(TAG, "Echo Wake-Word listener active for 'Hey Echo'.")
+        Log.i(TAG, "Echo Wake-Word listener active strictly for 'Hey Echo'.")
     }
 
     fun pauseForRecognition() {
         isPausedForRecognition.set(true)
-        stopAudioRecord()
         _isListening.value = false
+        cancelPendingRestarts()
+        mainHandler.post {
+            destroyRecognizer()
+        }
         Log.d(TAG, "Wake-word listener paused for active speech recognition.")
     }
 
     fun resumeAfterRecognition() {
         if (!preferences.isWakeWordEnabled) return
         isPausedForRecognition.set(false)
-        if (isRunning.get() && (listeningJob == null || listeningJob?.isActive == false)) {
+        if (isRunning.get()) {
             _isListening.value = true
-            listeningJob = scope.launch {
-                runAudioLoop()
-            }
-            Log.d(TAG, "Wake-word listener resumed.")
+            mainHandler.postDelayed({
+                if (isRunning.get() && !isPausedForRecognition.get()) {
+                    initiateContinuousListener()
+                }
+            }, 600L) // Brief delay to ensure mic hardware is cleanly handed off
+            Log.d(TAG, "Wake-word listener resuming...")
         }
     }
 
@@ -119,211 +114,161 @@ class EchoWakeWordManager(
         isRunning.set(false)
         isPausedForRecognition.set(false)
         _isListening.value = false
-        listeningJob?.cancel()
-        listeningJob = null
-        stopAudioRecord()
+        cancelPendingRestarts()
+        mainHandler.post {
+            destroyRecognizer()
+        }
         Log.i(TAG, "Echo Wake-Word listener stopped.")
     }
 
-    private fun runAudioLoop() {
-        val minBufferSize = AudioRecord.getMinBufferSize(
-            SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
-        val bufferSize = max(minBufferSize, FRAME_SIZE_SAMPLES * 4)
-
-        try {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                return
-            }
-
-            audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize
-            )
-
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e(TAG, "AudioRecord failed to initialize.")
-                return
-            }
-
-            audioRecord?.startRecording()
-
-            val audioBuffer = ShortArray(FRAME_SIZE_SAMPLES)
-
-            while (isRunning.get() && !isPausedForRecognition.get()) {
-                val readCount = audioRecord?.read(audioBuffer, 0, FRAME_SIZE_SAMPLES) ?: -1
-                if (readCount <= 0) {
-                    Thread.sleep(10)
-                    continue
-                }
-
-                processAudioFrame(audioBuffer, readCount)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in wake-word audio loop: ${e.message}")
-        } finally {
-            stopAudioRecord()
-        }
+    private fun cancelPendingRestarts() {
+        restartRunnable?.let { mainHandler.removeCallbacks(it) }
+        restartRunnable = null
     }
 
-    private fun processAudioFrame(buffer: ShortArray, length: Int) {
-        // 1. Calculate RMS Energy, Zero-Crossing Rate (ZCR), and high-frequency sample differential
-        var sumSquares = 0.0
-        var zeroCrossings = 0
-        var highFreqEnergySum = 0.0
-        var prevSample = buffer[0].toInt()
+    private fun initiateContinuousListener() {
+        if (!isRunning.get() || isPausedForRecognition.get()) return
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
 
-        for (i in 0 until length) {
-            val s = buffer[i].toInt()
-            sumSquares += (s * s)
-            val diff = s - prevSample
-            highFreqEnergySum += (diff * diff)
-            if ((s >= 0 && prevSample < 0) || (s < 0 && prevSample >= 0)) {
-                zeroCrossings++
-            }
-            prevSample = s
-        }
+        destroyRecognizer()
 
-        val rmsEnergy = sqrt(sumSquares / length)
-        val zcr = zeroCrossings.toDouble() / length
-        val highFreqRatio = if (sumSquares > 0) sqrt(highFreqEnergySum / sumSquares) else 0.0
-
-        // 2. Dynamic Noise Floor Tracking (requires distinct voice headroom above ambient noise)
-        noiseFloorEnergy = (noiseFloorEnergy * 0.97) + (min(noiseFloorEnergy * 1.3, rmsEnergy) * 0.03)
-        val ambientThreshold = max(650.0, noiseFloorEnergy * 2.2)
-
-        // Store frame metrics in cyclic history
-        energyHistory[historyIndex] = rmsEnergy
-        zcrHistory[historyIndex] = zcr
-        highFreqEnergyRatioHistory[historyIndex] = highFreqRatio
-        historyIndex = (historyIndex + 1) % HISTORY_FRAME_COUNT
-
-        // 3. Stage 1: Energy Gating - ignore frames below voice energy threshold
-        if (rmsEnergy < ambientThreshold) {
+        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+            Log.w(TAG, "SpeechRecognizer not available on device.")
             return
         }
 
-        // 4. Stage 2: Temporal Acoustic & Syllable Verification for "Hey Echo" / "Echo"
-        val detected = evaluateAcousticMatch(ambientThreshold)
-        if (detected) {
-            val now = System.currentTimeMillis()
-            if (now - lastTriggerTimestamp > TRIGGER_DEBOUNCE_MS) {
-                lastTriggerTimestamp = now
-                Log.i(TAG, "Wake word 'Hey Echo' verified and detected!")
-                triggerWakeWord("Hey Echo")
+        try {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
+                setRecognitionListener(object : RecognitionListener {
+                    override fun onReadyForSpeech(params: Bundle?) {
+                        Log.d(TAG, "Wake-word recognizer ready for 'Hey Echo'.")
+                    }
+
+                    override fun onBeginningOfSpeech() {}
+
+                    override fun onRmsChanged(rmsdB: Float) {}
+
+                    override fun onBufferReceived(buffer: ByteArray?) {}
+
+                    override fun onEndOfSpeech() {}
+
+                    override fun onError(error: Int) {
+                        Log.d(TAG, "Wake-word cycle finished with code: $error. Scheduling next cycle.")
+                        scheduleNextListeningCycle(300L)
+                    }
+
+                    override fun onResults(results: Bundle?) {
+                        val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
+                        checkMatchesForWakeWord(matches)
+                        scheduleNextListeningCycle(200L)
+                    }
+
+                    override fun onPartialResults(partialResults: Bundle?) {
+                        val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
+                        checkMatchesForWakeWord(matches)
+                    }
+
+                    override fun onEvent(eventType: Int, params: Bundle?) {}
+                })
+            }
+
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.US.toString())
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                // Optimized for quick keyword spotting
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 500L)
+            }
+
+            speechRecognizer?.startListening(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting wake-word recognizer: ${e.message}")
+            scheduleNextListeningCycle(1000L)
+        }
+    }
+
+    private fun checkMatchesForWakeWord(matches: List<String>) {
+        if (!isRunning.get() || isPausedForRecognition.get()) return
+
+        for (raw in matches) {
+            val text = raw.lowercase(Locale.ROOT).trim()
+            if (text.isBlank()) continue
+
+            // Strictly check if phrase is or starts/ends with "hey echo" / "echo"
+            val isWakeWord = WAKE_PHRASES.any { phrase ->
+                text == phrase || 
+                text.startsWith("$phrase ") || 
+                text.endsWith(" $phrase") || 
+                text.contains(" $phrase ")
+            }
+
+            if (isWakeWord) {
+                val now = System.currentTimeMillis()
+                if (now - lastTriggerTimestamp > TRIGGER_DEBOUNCE_MS) {
+                    lastTriggerTimestamp = now
+                    Log.i(TAG, "Confirmed wake-word detected: \"$text\"")
+                    triggerWakeWord(text)
+                    return
+                }
             }
         }
     }
 
-    private fun evaluateAcousticMatch(threshold: Double): Boolean {
-        val sensitivity = preferences.wakeWordSensitivity.coerceIn(0.2f, 0.95f)
-
-        // Minimum voice utterance length: 300ms to 1200ms (10 to 38 frames @ 32ms/frame)
-        // Sensitivity 0.40 (Balanced) -> requires strictly formed syllabic contour
-        var speechFrameCount = 0
-        var totalFramesChecked = 0
-        
-        // Track the presence of distinct syllable bursts separated by brief vowel/consonant dips
-        var syllablePeaks = 0
-        var inPeak = false
-        var hasPlosiveKBurst = false
-        var hasVowelResonance = false
-
-        for (i in 0 until min(HISTORY_FRAME_COUNT, 36)) {
-            val idx = (historyIndex - 1 - i + HISTORY_FRAME_COUNT) % HISTORY_FRAME_COUNT
-            val e = energyHistory[idx]
-            val z = zcrHistory[idx]
-            val hf = highFreqEnergyRatioHistory[idx]
-
-            totalFramesChecked++
-
-            if (e > threshold * 1.1) {
-                speechFrameCount++
-                if (!inPeak && e > threshold * 1.4) {
-                    inPeak = true
-                    syllablePeaks++
-                }
-                // Check vowel resonance (moderate ZCR, high RMS) for /eɪ/, /ɛ/, /oʊ/
-                if (z in 0.04..0.22 && e > threshold * 1.3) {
-                    hasVowelResonance = true
-                }
-                // Check velar plosive /k/ (sharp transient high ZCR burst or HF ratio > 0.9)
-                if ((z > 0.24 || hf > 1.1) && e > threshold * 0.8) {
-                    hasPlosiveKBurst = true
-                }
-            } else if (e < threshold * 0.85) {
-                inPeak = false
+    private fun scheduleNextListeningCycle(delayMs: Long) {
+        if (!isRunning.get() || isPausedForRecognition.get()) return
+        cancelPendingRestarts()
+        val runnable = Runnable {
+            if (isRunning.get() && !isPausedForRecognition.get()) {
+                initiateContinuousListener()
             }
         }
+        restartRunnable = runnable
+        mainHandler.postDelayed(runnable, delayMs)
+    }
 
-        // Minimum duration threshold based on sensitivity
-        val minRequiredSpeechFrames = when {
-            sensitivity <= 0.35f -> 14 // ~450ms sustained pattern (Strict)
-            sensitivity <= 0.55f -> 10 // ~320ms sustained pattern (Balanced)
-            else -> 8                  // ~250ms (Sensitive)
+    private fun destroyRecognizer() {
+        try {
+            speechRecognizer?.cancel()
+            speechRecognizer?.destroy()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error destroying recognizer: ${e.message}")
         }
-
-        val maxAllowedSpeechFrames = 34 // Discard continuous long speech/babble (> 1.1s)
-
-        if (speechFrameCount < minRequiredSpeechFrames || speechFrameCount > maxAllowedSpeechFrames) {
-            return false
-        }
-
-        // Must have at least 2 distinct acoustic energy peaks (e.g. "Hey" + "Echo" or "Eh" + "cho")
-        // AND have characteristic acoustic properties of the word "Echo"
-        val hasValidSyllableStructure = syllablePeaks in 2..4
-        val hasEchoCharacteristics = hasPlosiveKBurst && hasVowelResonance
-
-        return when {
-            sensitivity <= 0.35f -> hasValidSyllableStructure && hasEchoCharacteristics && speechFrameCount in 12..30
-            sensitivity <= 0.55f -> (hasValidSyllableStructure || hasEchoCharacteristics) && syllablePeaks >= 2
-            else -> syllablePeaks >= 2 && (hasVowelResonance || hasPlosiveKBurst)
-        }
+        speechRecognizer = null
     }
 
     private fun triggerWakeWord(phrase: String) {
-        // 1. Immediately pause to release the audio hardware for SpeechRecognizer
+        // Pause wake-word recognizer immediately so main voice assistant can take mic
         pauseForRecognition()
 
-        // 2. Haptic confirmation
         triggerHaptic()
 
-        // 3. Notify callback on UI thread
         mainHandler.post {
             onWakeWordDetected(phrase)
         }
     }
 
     private fun triggerHaptic() {
-        if (!preferences.isHapticsEnabled) return
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
                 val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
                 vibratorManager?.defaultVibrator?.vibrate(
-                    VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
+                    VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK)
                 )
             } else {
                 @Suppress("DEPRECATION")
                 val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                vibrator?.vibrate(50)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    vibrator?.vibrate(
+                        VibrationEffect.createOneShot(45L, VibrationEffect.DEFAULT_AMPLITUDE)
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(45L)
+                }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun stopAudioRecord() {
-        try {
-            if (audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-                audioRecord?.stop()
-            }
-            audioRecord?.release()
-            audioRecord = null
         } catch (e: Exception) {
             e.printStackTrace()
         }
