@@ -150,7 +150,7 @@ class EchoNlpEngine(
             "CALL" -> {
                 val target = intent.callTarget?.trim()?.ifBlank { clean } ?: clean
                 val res = deviceController.makeCall(target)
-                val speech = intent.spokenResponse.ifBlank { res.second }
+                val speech = res.second
                 ActionResult.CallAction(speech, target)
             }
 
@@ -386,8 +386,19 @@ class EchoNlpEngine(
             }
 
             // --- PHONE CALLS ---
-            lower.startsWith("call ") || lower.startsWith("dial ") -> {
-                val target = clean.replace(Regex("^(?i)(call|dial)\\s+"), "").trim()
+            lower == "call" || lower == "dial" || lower == "phone" || lower == "make a call" -> {
+                ActionResult.CallAction(
+                    "Who would you like to call? Please say a contact name or phone number.",
+                    ""
+                )
+            }
+            lower.startsWith("call ") || lower.startsWith("dial ") || lower.startsWith("phone ") ||
+                    lower.startsWith("ring ") || lower.startsWith("make a call to ") ||
+                    lower.startsWith("place a call to ") || lower.startsWith("can you call ") ||
+                    lower.startsWith("please call ") || lower.startsWith("call to ") -> {
+                val target = clean
+                    .replace(Regex("^(?i)(please\\s+)?(can\\s+you\\s+)?(make\\s+a\\s+call\\s+to|place\\s+a\\s+call\\s+to|call\\s+to|call|dial|phone|ring)\\s+"), "")
+                    .trim()
                 val res = deviceController.makeCall(target)
                 ActionResult.CallAction(res.second, target)
             }

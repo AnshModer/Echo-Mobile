@@ -57,18 +57,6 @@ class AssistantPreferences(context: Context) {
         get() = prefs.getBoolean("floating_bubble_enabled", false)
         set(value) = prefs.edit().putBoolean("floating_bubble_enabled", value).apply()
 
-    var isWakeWordEnabled: Boolean
-        get() = prefs.getBoolean("wake_word_enabled", true)
-        set(value) = prefs.edit().putBoolean("wake_word_enabled", value).apply()
-
-    var wakeWordSensitivity: Float
-        get() = prefs.getFloat("wake_word_sensitivity", 0.45f)
-        set(value) = prefs.edit().putFloat("wake_word_sensitivity", value).apply()
-
-    var wakeWordPhrase: String
-        get() = prefs.getString("wake_word_phrase", "Hey Echo") ?: "Hey Echo"
-        set(value) = prefs.edit().putString("wake_word_phrase", value).apply()
-
     var customGeminiApiKey: String
         get() = prefs.getString("custom_gemini_api_key", "") ?: ""
         set(value) = prefs.edit().putString("custom_gemini_api_key", value.trim()).apply()

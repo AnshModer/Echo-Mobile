@@ -17,6 +17,7 @@ import android.provider.AlarmClock
 import android.provider.Settings
 import android.view.KeyEvent
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import java.util.Locale
 
 data class BatteryInfo(
@@ -225,18 +226,82 @@ class DeviceController(private val context: Context) {
     }
 
     // --- CALLS & SMS ---
-    fun makeCall(phoneNumber: String): Pair<Boolean, String> {
+    fun makeCall(target: String): Pair<Boolean, String> {
+        val cleanTarget = target.trim()
+        if (cleanTarget.isBlank()) {
+            return Pair(false, "Who would you like to call? Please say a contact name or phone number.")
+        }
+
+        // Case 1: Direct phone number (e.g. "+1-234-567-8900", "9876543210", "911")
+        if (ContactLookupHelper.isDirectPhoneNumber(cleanTarget)) {
+            return dialOrPlaceCall(cleanTarget, cleanTarget)
+        }
+
+        // Case 2: Contact name lookup (e.g. "mom", "John", "Sarah Connor")
+        if (!ContactLookupHelper.hasContactsPermission(context)) {
+            return Pair(
+                false,
+                "Contacts permission is required to find \"$cleanTarget\". Please allow Contacts access in Echo settings."
+            )
+        }
+
+        val bestMatch = ContactLookupHelper.findBestContactMatch(context, cleanTarget)
+        return if (bestMatch != null) {
+            val res = dialOrPlaceCall(bestMatch.number, bestMatch.name)
+            if (res.first) {
+                Pair(true, "Calling ${bestMatch.name} (${bestMatch.number})...")
+            } else {
+                res
+            }
+        } else {
+            Pair(
+                false,
+                "No contact matching \"$cleanTarget\" was found in your phone contacts."
+            )
+        }
+    }
+
+    fun dialOrPlaceCall(phoneNumber: String, displayName: String): Pair<Boolean, String> {
         return try {
             val cleanNumber = phoneNumber.replace(Regex("[^0-9+]"), "")
-            val intent = Intent(Intent.ACTION_DIAL).apply {
-                data = Uri.parse("tel:$cleanNumber")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (cleanNumber.isBlank()) {
+                return Pair(false, "Invalid phone number for $displayName.")
             }
-            context.startActivity(intent)
-            Pair(true, "Calling $phoneNumber...")
+
+            val hasCallPermission = ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.CALL_PHONE
+            ) == PackageManager.PERMISSION_GRANTED
+
+            val intent = if (hasCallPermission) {
+                Intent(Intent.ACTION_CALL).apply {
+                    data = Uri.parse("tel:$cleanNumber")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            } else {
+                Intent(Intent.ACTION_DIAL).apply {
+                    data = Uri.parse("tel:$cleanNumber")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+
+            try {
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                    data = Uri.parse("tel:$cleanNumber")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(dialIntent)
+            }
+            Pair(true, "Calling $displayName ($phoneNumber)...")
         } catch (e: Exception) {
-            Pair(false, "Could not open dialer: ${e.localizedMessage}")
+            Pair(false, "Could not place call to $displayName: ${e.localizedMessage}")
         }
+    }
+
+    fun searchContacts(query: String): List<ContactMatch> {
+        return ContactLookupHelper.searchContacts(context, query)
     }
 
     fun sendSms(phoneNumber: String, messageText: String): Pair<Boolean, String> {

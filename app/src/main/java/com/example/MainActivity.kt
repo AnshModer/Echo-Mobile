@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -15,8 +14,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,13 +35,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
-import com.example.engine.GeminiClient
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Mic
@@ -112,7 +109,9 @@ import com.example.engine.EchoNlpEngine
 import com.example.engine.VolumeInfo
 import com.example.service.EchoFloatingBubbleService
 import com.example.service.EchoNotificationHelper
+import com.example.engine.ContactLookupHelper
 import com.example.ui.components.BatteryStatusCard
+import com.example.ui.components.ContactCallCard
 import com.example.ui.components.FlashlightControlCard
 import com.example.ui.components.GlassmorphicCard
 import com.example.ui.components.NotesAndHistoryView
@@ -143,16 +142,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var nlpEngine: EchoNlpEngine
     private lateinit var voiceManager: EchoVoiceManager
     private lateinit var database: EchoDatabase
-    private lateinit var wakeWordManager: com.example.voice.EchoWakeWordManager
 
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
             voiceManager.startListening()
-            if (preferences.isWakeWordEnabled) {
-                wakeWordManager.start()
-            }
         }
     }
 
@@ -174,6 +169,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val contactsPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        // Permissions updated
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -185,11 +186,6 @@ class MainActivity : ComponentActivity() {
 
         voiceManager = EchoVoiceManager(this) { spokenQuery ->
             executeCommand(spokenQuery)
-        }
-
-        wakeWordManager = com.example.voice.EchoWakeWordManager(this) { detectedPhrase ->
-            Log.d("MainActivity", "Wake word detected in MainActivity: $detectedPhrase")
-            voiceManager.startListening()
         }
 
         // Check & request microphone permission on initial launch so background/long-press services have access
@@ -230,6 +226,14 @@ class MainActivity : ComponentActivity() {
                     onRequestOverlayPermission = {
                         requestOverlayPermission()
                     },
+                    onRequestContactPermission = {
+                        contactsPermissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.READ_CONTACTS,
+                                Manifest.permission.CALL_PHONE
+                            )
+                        )
+                    },
                     onExecuteQuery = { query ->
                         executeCommand(query)
                     },
@@ -264,34 +268,20 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        if (preferences.isWakeWordEnabled && ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            wakeWordManager.start()
-        }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        wakeWordManager.stop()
     }
 
     private fun executeCommand(query: String) {
         val coroutineScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main)
         coroutineScope.launch {
-            wakeWordManager.pauseForRecognition()
             voiceManager.setState(AssistantState.THINKING)
             val result = nlpEngine.processQuery(query)
             voiceManager.setLiveTranscript(result.responseText)
-            voiceManager.speak(result.responseText) {
-                if (preferences.isWakeWordEnabled) {
-                    wakeWordManager.resumeAfterRecognition()
-                }
-            }
+            voiceManager.speak(result.responseText)
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        wakeWordManager.stop()
         voiceManager.destroy()
     }
 }
@@ -305,6 +295,7 @@ fun MainAssistantDashboard(
     preferences: AssistantPreferences,
     onRequestMicPermission: () -> Unit,
     onRequestOverlayPermission: () -> Unit,
+    onRequestContactPermission: () -> Unit,
     onExecuteQuery: (String) -> Unit,
     onOpenAssistantOverlay: () -> Unit
 ) {
@@ -334,6 +325,7 @@ fun MainAssistantDashboard(
     val hasOverlayPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
     val quickActionChips = listOf(
+        Pair("Call Mom", Icons.Default.Call),
         Pair("Explain Quantum Physics", Icons.Default.AutoAwesome),
         Pair("Tell me a fun science fact", Icons.Default.AutoAwesome),
         Pair("Calculate 25 * 4", Icons.Default.Calculate),
@@ -658,6 +650,16 @@ fun MainAssistantDashboard(
             }
 
             item {
+                ContactCallCard(
+                    deviceController = deviceController,
+                    onCallRequest = { target ->
+                        onExecuteQuery(if (target.startsWith("call ", ignoreCase = true) || target.startsWith("dial ", ignoreCase = true)) target else "call $target")
+                    },
+                    onRequestContactPermission = onRequestContactPermission
+                )
+            }
+
+            item {
                 QuickAppLauncherGrid(
                     onLaunchApp = { appName ->
                         deviceController.openApp(appName)
@@ -822,11 +824,9 @@ fun MainAssistantDashboard(
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = DarkNebulaSurface
         ) {
-            val settingsScrollState = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(settingsScrollState)
                     .padding(horizontal = 24.dp, vertical = 12.dp)
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -877,114 +877,6 @@ fun MainAssistantDashboard(
                                 fontSize = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                             )
-                        }
-                    }
-                }
-
-                // Hands-Free "Hey Echo" Wake Word Detection
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF161E2E))
-                        .padding(14.dp)
-                ) {
-                    var wakeWordEnabled by remember { mutableStateOf(preferences.isWakeWordEnabled) }
-                    var sensitivity by remember { mutableStateOf(preferences.wakeWordSensitivity) }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "🎙️ \"Hey Echo\" Wake Word",
-                                    color = TextPrimary,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (wakeWordEnabled) NeonCyan.copy(alpha = 0.2f) else Color.DarkGray)
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = if (wakeWordEnabled) "OFFLINE KWS" else "OFF",
-                                        color = if (wakeWordEnabled) NeonCyan else TextSecondary,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Hands-free low-power on-device voice activation",
-                                color = TextSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
-                        Switch(
-                            checked = wakeWordEnabled,
-                            onCheckedChange = { enable ->
-                                wakeWordEnabled = enable
-                                preferences.isWakeWordEnabled = enable
-                                if (enable && !hasMicPermission) {
-                                    onRequestMicPermission()
-                                }
-                            },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.Black, checkedTrackColor = NeonCyan)
-                        )
-                    }
-
-                    if (wakeWordEnabled) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "Detection Sensitivity",
-                            color = TextSecondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            val levels = listOf(
-                                "Strict" to 0.30f,
-                                "Balanced" to 0.45f,
-                                "Sensitive" to 0.70f
-                            )
-                            levels.forEach { (label, sensVal) ->
-                                val isSelected = Math.abs(sensitivity - sensVal) < 0.06f
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isSelected) NeonCyan.copy(alpha = 0.25f) else Color(0xFF0F172A))
-                                        .border(
-                                            1.dp,
-                                            if (isSelected) NeonCyan else Color.Transparent,
-                                            RoundedCornerShape(10.dp)
-                                        )
-                                        .clickable {
-                                            sensitivity = sensVal
-                                            preferences.wakeWordSensitivity = sensVal
-                                        }
-                                        .padding(vertical = 8.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = label,
-                                        color = if (isSelected) TextPrimary else TextSecondary,
-                                        fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                }
-                            }
                         }
                     }
                 }
@@ -1108,7 +1000,42 @@ fun MainAssistantDashboard(
                     )
                 }
 
-                // Gemini AI Intelligence Configuration
+                // Contacts Permission Setting
+                val hasContactsPerm = ContactLookupHelper.hasContactsPermission(context)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Contacts & Calling Access", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(
+                            text = if (hasContactsPerm) "Connected • Can find contacts by spoken name" else "Permission required to look up names before calling",
+                            color = if (hasContactsPerm) EmeraldGlow else SolarAmber,
+                            fontSize = 12.sp
+                        )
+                    }
+                    if (!hasContactsPerm) {
+                        Button(
+                            onClick = onRequestContactPermission,
+                            colors = ButtonDefaults.buttonColors(containerColor = EmeraldGlow),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Grant", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(EmeraldGlow.copy(alpha = 0.2f))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("Granted", color = EmeraldGlow, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Gemini 3.5 Flash AI Intelligence Configuration
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1116,14 +1043,8 @@ fun MainAssistantDashboard(
                         .background(Color(0xFF131A2A))
                         .border(1.dp, Color(0xFF25334E), RoundedCornerShape(16.dp))
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    var apiKeyInput by remember { mutableStateOf(preferences.customGeminiApiKey) }
-                    var showKeyPassword by remember { mutableStateOf(false) }
-                    var verificationStatusText by remember { mutableStateOf<String?>(null) }
-                    var isVerifyingKey by remember { mutableStateOf(false) }
-                    var isKeyValid by remember { mutableStateOf(preferences.hasValidGeminiApiKey()) }
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1137,22 +1058,23 @@ fun MainAssistantDashboard(
                                 modifier = Modifier.size(20.dp)
                             )
                             Text(
-                                text = "Gemini Flash Intelligence",
+                                text = "Gemini 3.5 Flash Intelligence",
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary,
                                 fontSize = 14.sp
                             )
                         }
 
+                        val hasKey = preferences.hasValidGeminiApiKey()
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (isKeyValid) EmeraldGlow.copy(alpha = 0.2f) else SolarAmber.copy(alpha = 0.2f))
+                                .background(if (hasKey) EmeraldGlow.copy(alpha = 0.2f) else SolarAmber.copy(alpha = 0.2f))
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = if (isKeyValid) "ACTIVE & READY" else "SET API KEY",
-                                color = if (isKeyValid) EmeraldGlow else SolarAmber,
+                                text = if (hasKey) "ACTIVE & TALKING" else "READY",
+                                color = if (hasKey) EmeraldGlow else SolarAmber,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
@@ -1160,20 +1082,24 @@ fun MainAssistantDashboard(
                     }
 
                     Text(
-                        text = "Powers natural language conversational skills, multi-turn dialogues, real-time math, and smart voice command comprehension.",
+                        text = "Powered by Google Gemini 3.5 Flash for natural conversations, answering questions, giving advice, and spoken voice intelligence. Auto-configured via AI Studio Secrets.",
                         color = TextSecondary,
                         fontSize = 12.sp,
                         lineHeight = 16.sp
                     )
 
+                    var apiKeyInput by remember { mutableStateOf(preferences.customGeminiApiKey) }
+                    var showKeyPassword by remember { mutableStateOf(false) }
+                    var keySavedConfirmation by remember { mutableStateOf(false) }
+
                     OutlinedTextField(
                         value = apiKeyInput,
                         onValueChange = {
                             apiKeyInput = it
-                            verificationStatusText = null
+                            keySavedConfirmation = false
                         },
-                        label = { Text("Gemini API Key", fontSize = 12.sp) },
-                        placeholder = { Text("Paste AIzaSy... key here", fontSize = 11.sp, color = TextMuted) },
+                        label = { Text("Custom Gemini API Key (Optional)", fontSize = 12.sp) },
+                        placeholder = { Text("Enter key or leave blank to use build secret", fontSize = 11.sp, color = TextMuted) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("gemini_api_key_input"),
@@ -1202,45 +1128,22 @@ fun MainAssistantDashboard(
                         )
                     )
 
-                    if (verificationStatusText != null) {
-                        Text(
-                            text = verificationStatusText!!,
-                            color = if (isKeyValid) EmeraldGlow else SolarAmber,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
                             onClick = {
-                                preferences.customGeminiApiKey = apiKeyInput.trim()
-                                coroutineScope.launch {
-                                    isVerifyingKey = true
-                                    verificationStatusText = "Validating key with Google..."
-                                    val (success, message) = GeminiClient(context).testApiKey(apiKeyInput.trim())
-                                    isVerifyingKey = false
-                                    isKeyValid = success
-                                    verificationStatusText = message
-                                }
+                                preferences.customGeminiApiKey = apiKeyInput
+                                keySavedConfirmation = true
                             },
-                            enabled = !isVerifyingKey,
                             modifier = Modifier.weight(1f).testTag("save_api_key_button"),
                             colors = ButtonDefaults.buttonColors(containerColor = VividViolet),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            if (isVerifyingKey) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Testing...", fontSize = 12.sp)
-                            } else {
-                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Save & Verify", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (keySavedConfirmation) "Saved!" else "Save Key", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
 
                         if (apiKeyInput.isNotBlank()) {
@@ -1248,8 +1151,7 @@ fun MainAssistantDashboard(
                                 onClick = {
                                     apiKeyInput = ""
                                     preferences.customGeminiApiKey = ""
-                                    isKeyValid = preferences.hasValidGeminiApiKey()
-                                    verificationStatusText = "API key cleared."
+                                    keySavedConfirmation = false
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
                                 shape = RoundedCornerShape(10.dp)
