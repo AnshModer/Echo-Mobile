@@ -114,6 +114,7 @@ import com.example.ui.components.BatteryStatusCard
 import com.example.ui.components.ContactCallCard
 import com.example.ui.components.FlashlightControlCard
 import com.example.ui.components.GlassmorphicCard
+import com.example.ui.components.LogoDownloadCard
 import com.example.ui.components.NotesAndHistoryView
 import com.example.ui.components.QuickAppLauncherGrid
 import com.example.ui.components.RedmiSetupGuide
@@ -657,6 +658,10 @@ fun MainAssistantDashboard(
                     },
                     onRequestContactPermission = onRequestContactPermission
                 )
+            }
+
+            item {
+                LogoDownloadCard()
             }
 
             item {
