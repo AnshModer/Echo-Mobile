@@ -17,7 +17,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.CropFree
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.Bluetooth
@@ -708,6 +716,613 @@ fun ContactCallCard(
                             text = cmd,
                             color = NeonCyan,
                             fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun WhatsAppMessageCard(
+    deviceController: DeviceController,
+    onSendWhatsApp: (target: String, message: String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var targetText by remember { mutableStateOf("") }
+    var messageText by remember { mutableStateOf("") }
+    var matchingContacts by remember { mutableStateOf<List<ContactMatch>>(emptyList()) }
+    val hasContactPermission = ContactLookupHelper.hasContactsPermission(context)
+
+    val quickMessages = listOf(
+        "I'll be there in 10 mins",
+        "Running late, see you soon!",
+        "Please call me back",
+        "Reached safely!"
+    )
+
+    LaunchedEffect(targetText, hasContactPermission) {
+        if (hasContactPermission && targetText.isNotBlank() && !ContactLookupHelper.isDirectPhoneNumber(targetText)) {
+            matchingContacts = deviceController.searchContacts(targetText)
+        } else {
+            matchingContacts = emptyList()
+        }
+    }
+
+    GlassmorphicCard(
+        modifier = modifier.testTag("whatsapp_message_card"),
+        borderColor = EmeraldGlow.copy(alpha = 0.4f)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Brush.radialGradient(listOf(Color(0xFF25D366), Color(0xFF128C7E)))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Chat,
+                            contentDescription = "WhatsApp",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "WhatsApp Messaging",
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = "Voice message or direct chat compose",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = { deviceController.openWhatsApp() },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .height(32.dp)
+                        .testTag("open_whatsapp_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.OpenInNew,
+                        contentDescription = "Open App",
+                        tint = EmeraldGlow,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Open", color = EmeraldGlow, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Contact / Target input
+            OutlinedTextField(
+                value = targetText,
+                onValueChange = { targetText = it },
+                placeholder = {
+                    Text(
+                        "Contact name or phone number (e.g. Mom, +1...)",
+                        color = TextMuted,
+                        fontSize = 12.5.sp
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = "Recipient",
+                        tint = EmeraldGlow,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = EmeraldGlow,
+                    unfocusedBorderColor = Color(0xFF1E293B),
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    cursorColor = EmeraldGlow
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("whatsapp_target_input")
+            )
+
+            // Contact match dropdown suggestions
+            if (matchingContacts.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    matchingContacts.take(2).forEach { contact ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF131B2E))
+                                .clickable {
+                                    targetText = contact.name
+                                    matchingContacts = emptyList()
+                                }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "👤 ${contact.name}",
+                                color = EmeraldGlow,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Message text input
+            OutlinedTextField(
+                value = messageText,
+                onValueChange = { messageText = it },
+                placeholder = {
+                    Text(
+                        "Type your WhatsApp message...",
+                        color = TextMuted,
+                        fontSize = 12.5.sp
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Send,
+                        contentDescription = "Message",
+                        tint = EmeraldGlow,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                singleLine = false,
+                maxLines = 3,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = EmeraldGlow,
+                    unfocusedBorderColor = Color(0xFF1E293B),
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    cursorColor = EmeraldGlow
+                ),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("whatsapp_message_input")
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Quick preset message chips
+            Text(
+                text = "Quick Presets:",
+                color = TextSecondary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                quickMessages.take(2).forEach { preset ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF1E293B))
+                            .clickable { messageText = preset }
+                            .padding(vertical = 5.dp, horizontal = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = preset,
+                            color = NeonCyan,
+                            fontSize = 10.5.sp,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                quickMessages.drop(2).forEach { preset ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF1E293B))
+                            .clickable { messageText = preset }
+                            .padding(vertical = 5.dp, horizontal = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = preset,
+                            color = NeonCyan,
+                            fontSize = 10.5.sp,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Send Button
+            Button(
+                onClick = {
+                    onSendWhatsApp(targetText, messageText)
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF25D366)
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .testTag("send_whatsapp_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Send,
+                    contentDescription = "Send WhatsApp",
+                    tint = Color.Black,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (targetText.isNotBlank()) "Send WhatsApp to $targetText" else "Send via WhatsApp",
+                    color = Color.Black,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Voice command examples
+            Text(
+                text = "Voice Commands:",
+                color = TextSecondary,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf("WhatsApp Mom: I'm late", "Send WhatsApp to Rahul", "Open WhatsApp").forEach { cmd ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF1E293B))
+                            .clickable {
+                                onSendWhatsApp(
+                                    cmd.substringAfter("WhatsApp ").substringBefore(":").trim(),
+                                    cmd.substringAfter(":", "").trim()
+                                )
+                            }
+                            .padding(vertical = 6.dp, horizontal = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = cmd,
+                            color = EmeraldGlow,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ScreenshotControlCard(
+    deviceController: DeviceController,
+    onTakeScreenshot: () -> Unit,
+    onShareScreenshot: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val recentScreenshots = remember { mutableStateOf(com.example.engine.ScreenshotHelper.getRecentScreenshots(context)) }
+
+    fun refreshList() {
+        recentScreenshots.value = com.example.engine.ScreenshotHelper.getRecentScreenshots(context)
+    }
+
+    GlassmorphicCard(
+        modifier = modifier.testTag("screenshot_control_card"),
+        borderColor = NeonCyan.copy(alpha = 0.4f)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Brush.radialGradient(listOf(NeonCyan, Color(0xFF0284C7)))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoCamera,
+                            contentDescription = "Screenshot",
+                            tint = Color.Black,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Screen Capture & Snapshots",
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            fontSize = 15.sp
+                        )
+                        Text(
+                            text = "Say 'Take screenshot' or tap capture",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Main Capture Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = {
+                        onTakeScreenshot()
+                        refreshList()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NeonCyan
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .testTag("take_screenshot_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CropFree,
+                        contentDescription = "Capture Screen",
+                        tint = Color.Black,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Capture Screen",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.5.sp
+                    )
+                }
+
+                Button(
+                    onClick = onShareScreenshot,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1E293B)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .height(44.dp)
+                        .testTag("share_screenshot_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = "Share",
+                        tint = NeonCyan,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Share", color = NeonCyan, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Shortcut Info
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF131B2E))
+                    .padding(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Smartphone,
+                        contentDescription = "Hardware Shortcut",
+                        tint = SolarAmber,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Hardware Shortcuts: 3-finger swipe down or press Power + Volume Down",
+                        color = TextSecondary,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+
+            // Recent Screenshots Preview
+            if (recentScreenshots.value.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Recent Screenshots (${recentScreenshots.value.size}):",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Saved in Gallery",
+                        color = EmeraldGlow,
+                        fontSize = 11.sp
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    recentScreenshots.value.take(2).forEach { item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF131B2E))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(ElectricBlue.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Image,
+                                        contentDescription = "Screenshot Image",
+                                        tint = ElectricBlue,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = item.name,
+                                        color = TextPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = "${item.sizeBytes / 1024} KB",
+                                        color = TextMuted,
+                                        fontSize = 10.5.sp
+                                    )
+                                }
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                IconButton(
+                                    onClick = { com.example.engine.ScreenshotHelper.viewScreenshot(context, item.uri) },
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .testTag("view_screenshot_${item.name}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Visibility,
+                                        contentDescription = "View",
+                                        tint = NeonCyan,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { com.example.engine.ScreenshotHelper.shareScreenshot(context, item.uri) },
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .testTag("share_screenshot_${item.name}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Share,
+                                        contentDescription = "Share",
+                                        tint = EmeraldGlow,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Sample voice screenshot chips
+            Text(
+                text = "Voice Commands:",
+                color = TextSecondary,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("Take a screenshot", "Capture screen", "Share screenshot").forEach { cmd ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF1E293B))
+                            .clickable {
+                                if (cmd.contains("Share")) onShareScreenshot() else onTakeScreenshot()
+                            }
+                            .padding(vertical = 6.dp, horizontal = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = cmd,
+                            color = NeonCyan,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1
                         )

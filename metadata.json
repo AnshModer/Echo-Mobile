@@ -1,6 +1,6 @@
 {
   "name": "Echo",
-  "description": "Echo - Digital Voice Assistant with device control, Siri-style glowing orb animation, and default assistant integration.",
+  "description": "Echo - Digital Voice Assistant with device control, WhatsApp messaging, screenshot ability, Siri-style glowing orb animation, and default assistant integration.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

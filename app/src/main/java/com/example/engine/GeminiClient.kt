@@ -14,7 +14,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 data class GeminiTaskIntent(
-    val action: String, // "FLASHLIGHT", "VOLUME", "BATTERY", "APP_LAUNCH", "TIMER", "ALARM", "NOTE", "CALL", "SMS", "SETTINGS", "WEB_SEARCH", "NAVIGATION", "CALCULATION", "MEDIA", "YOUTUBE", "CHAT"
+    val action: String, // "FLASHLIGHT", "VOLUME", "BATTERY", "APP_LAUNCH", "TIMER", "ALARM", "NOTE", "CALL", "SMS", "WHATSAPP", "SCREENSHOT", "SETTINGS", "WEB_SEARCH", "NAVIGATION", "CALCULATION", "MEDIA", "YOUTUBE", "CHAT"
     val state: Boolean? = null,
     val level: Int? = null,
     val volumeDirection: String? = null, // "UP", "DOWN", "MUTE", "UNMUTE", "SET"
@@ -26,6 +26,8 @@ data class GeminiTaskIntent(
     val callTarget: String? = null,
     val smsTarget: String? = null,
     val smsBody: String? = null,
+    val whatsAppTarget: String? = null,
+    val whatsAppMessage: String? = null,
     val settingsTarget: String? = null, // "WIFI", "BLUETOOTH", "DISPLAY", "SOUND", "BATTERY", "ASSISTANT", "GESTURE"
     val searchQuery: String? = null,
     val destination: String? = null,
@@ -100,19 +102,23 @@ class GeminiClient(private val context: Context? = null) {
                    Parameters: "callTarget": contact name or phone number
                 9. "SMS": Send an SMS text message (e.g. "text mom I am coming home", "sms to Rahul: reached safely").
                    Parameters: "smsTarget": contact or number, "smsBody": message text
-                10. "SETTINGS": Open system settings (e.g. "turn on wifi settings", "bluetooth settings", "change display brightness", "assistant settings", "power button shortcuts").
+                10. "WHATSAPP": Send a WhatsApp message or start WhatsApp chat (e.g. "send whatsapp message to mom I will be late", "whatsapp rahul saying reached home", "send whatsapp to 9876543210: meeting at 4pm", "message sarah on whatsapp", "open whatsapp chat").
+                    Parameters: "whatsAppTarget": contact name or phone number, "whatsAppMessage": message text
+                11. "SCREENSHOT": Take or capture a screenshot of current screen (e.g. "take a screenshot", "capture screen", "screenshot this", "screen capture", "take screen snap").
+                    Parameters: none
+                12. "SETTINGS": Open system settings (e.g. "turn on wifi settings", "bluetooth settings", "change display brightness", "assistant settings", "power button shortcuts").
                     Parameters: "settingsTarget": "WIFI"|"BLUETOOTH"|"DISPLAY"|"SOUND"|"BATTERY"|"ASSISTANT"|"GESTURE"
-                11. "NAVIGATION": Open map directions (e.g. "take me to central park", "directions to nearest hospital", "navigate to airport").
+                13. "NAVIGATION": Open map directions (e.g. "take me to central park", "directions to nearest hospital", "navigate to airport").
                     Parameters: "destination": place name or address
-                12. "WEB_SEARCH": Search the web / Google (e.g. "search for latest news", "google quantum computing").
+                14. "WEB_SEARCH": Search the web / Google (e.g. "search for latest news", "google quantum computing").
                     Parameters: "searchQuery": query string
-                13. "YOUTUBE": Search or play video/music on YouTube (e.g. "play coldplay yellow", "watch cat videos on youtube", "youtube arijit singh").
+                15. "YOUTUBE": Search or play video/music on YouTube (e.g. "play coldplay yellow", "watch cat videos on youtube", "youtube arijit singh").
                     Parameters: "youtubeQuery": video or artist query
-                14. "MEDIA": Music controls (e.g. "pause music", "stop song", "next song", "skip", "play something good on spotify").
+                16. "MEDIA": Music controls (e.g. "pause music", "stop song", "next song", "skip", "play something good on spotify").
                     Parameters: "mediaCommand": "PLAY"|"PAUSE"|"NEXT"|"PREVIOUS"|"SPOTIFY", "mediaTarget": optional song name
-                15. "CALCULATION": Math calculation (e.g. "what is 24 times 15", "calculate 15 percent of 450").
+                17. "CALCULATION": Math calculation (e.g. "what is 24 times 15", "calculate 15 percent of 450").
                     Parameters: "expression": "24 * 15", "calculationResult": "360"
-                16. "CHAT": General conversational queries, chit-chat, knowledge questions, explanations, advice, jokes, facts (e.g. "who was Albert Einstein", "tell me a joke", "how does photosynthesis work", "hello how are you").
+                18. "CHAT": General conversational queries, chit-chat, knowledge questions, explanations, advice, jokes, facts (e.g. "who was Albert Einstein", "tell me a joke", "how does photosynthesis work", "hello how are you").
                     Parameters: none
 
                 Return a JSON object with this exact schema:
@@ -129,6 +135,8 @@ class GeminiClient(private val context: Context? = null) {
                   "callTarget": "name or number",
                   "smsTarget": "name or number",
                   "smsBody": "message string",
+                  "whatsAppTarget": "name or number",
+                  "whatsAppMessage": "message string",
                   "settingsTarget": "WIFI"|"BLUETOOTH"|"DISPLAY"|"SOUND"|"BATTERY"|"ASSISTANT"|"GESTURE",
                   "destination": "place string",
                   "searchQuery": "query string",
@@ -199,6 +207,8 @@ class GeminiClient(private val context: Context? = null) {
                 callTarget = if (json.has("callTarget")) json.optString("callTarget") else null,
                 smsTarget = if (json.has("smsTarget")) json.optString("smsTarget") else null,
                 smsBody = if (json.has("smsBody")) json.optString("smsBody") else null,
+                whatsAppTarget = if (json.has("whatsAppTarget")) json.optString("whatsAppTarget") else null,
+                whatsAppMessage = if (json.has("whatsAppMessage")) json.optString("whatsAppMessage") else null,
                 settingsTarget = if (json.has("settingsTarget")) json.optString("settingsTarget") else null,
                 searchQuery = if (json.has("searchQuery")) json.optString("searchQuery") else null,
                 destination = if (json.has("destination")) json.optString("destination") else null,

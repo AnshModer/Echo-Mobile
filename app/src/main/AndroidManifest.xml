@@ -45,6 +45,7 @@
         </intent>
         <package android:name="com.google.android.youtube" />
         <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
         <package android:name="com.google.android.apps.maps" />
         <package android:name="com.android.chrome" />
         <package android:name="com.spotify.music" />
@@ -158,9 +159,10 @@
                 android:value="Floating orb assistant overlay for fast access" />
         </service>
 
+        <!-- File Provider for Screenshot and Media Sharing -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.provider"
+            android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

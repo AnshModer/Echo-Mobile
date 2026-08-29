@@ -114,12 +114,13 @@ import com.example.ui.components.BatteryStatusCard
 import com.example.ui.components.ContactCallCard
 import com.example.ui.components.FlashlightControlCard
 import com.example.ui.components.GlassmorphicCard
-import com.example.ui.components.LogoDownloadCard
 import com.example.ui.components.NotesAndHistoryView
 import com.example.ui.components.QuickAppLauncherGrid
 import com.example.ui.components.RedmiSetupGuide
+import com.example.ui.components.ScreenshotControlCard
 import com.example.ui.components.SiriOrbVisualizer
 import com.example.ui.components.VolumeControlCard
+import com.example.ui.components.WhatsAppMessageCard
 import com.example.ui.theme.DarkNebulaSurface
 import com.example.ui.theme.ElectricBlue
 import com.example.ui.theme.EmeraldGlow
@@ -326,6 +327,8 @@ fun MainAssistantDashboard(
     val hasOverlayPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
     val quickActionChips = listOf(
+        Pair("WhatsApp Mom: I'm late", Icons.Default.Chat),
+        Pair("Take Screenshot", Icons.Default.AutoAwesome),
         Pair("Call Mom", Icons.Default.Call),
         Pair("Explain Quantum Physics", Icons.Default.AutoAwesome),
         Pair("Tell me a fun science fact", Icons.Default.AutoAwesome),
@@ -661,7 +664,33 @@ fun MainAssistantDashboard(
             }
 
             item {
-                LogoDownloadCard()
+                WhatsAppMessageCard(
+                    deviceController = deviceController,
+                    onSendWhatsApp = { target, message ->
+                        val cmd = if (target.isNotBlank() && message.isNotBlank()) {
+                            "send whatsapp message to $target: $message"
+                        } else if (target.isNotBlank()) {
+                            "whatsapp $target"
+                        } else if (message.isNotBlank()) {
+                            "send whatsapp message $message"
+                        } else {
+                            "open whatsapp"
+                        }
+                        onExecuteQuery(cmd)
+                    }
+                )
+            }
+
+            item {
+                ScreenshotControlCard(
+                    deviceController = deviceController,
+                    onTakeScreenshot = {
+                        onExecuteQuery("take a screenshot")
+                    },
+                    onShareScreenshot = {
+                        onExecuteQuery("share screenshot")
+                    }
+                )
             }
 
             item {

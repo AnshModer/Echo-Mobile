@@ -23,6 +23,8 @@ sealed class ActionResult(
     class AlarmAction(text: String, val timeFormatted: String) : ActionResult(text, "ALARM", true)
     class NoteAction(text: String, val noteText: String) : ActionResult(text, "NOTE", true)
     class CallAction(text: String, val target: String) : ActionResult(text, "CALL", true)
+    class WhatsAppAction(text: String, val target: String, val message: String) : ActionResult(text, "WHATSAPP", true)
+    class ScreenshotAction(text: String, val isCaptured: Boolean) : ActionResult(text, "SCREENSHOT", true)
     class SettingsAction(text: String, val settingName: String) : ActionResult(text, "SETTINGS", true)
     class WebAction(text: String, val query: String) : ActionResult(text, "WEB_SEARCH", true)
     class CalculationAction(text: String, val expression: String, val resultValue: String) : ActionResult(text, "CALCULATION", true)
@@ -160,6 +162,20 @@ class EchoNlpEngine(
                 val res = deviceController.sendSms(target, body)
                 val speech = intent.spokenResponse.ifBlank { res.second }
                 ActionResult.CallAction(speech, target)
+            }
+
+            "WHATSAPP" -> {
+                val target = intent.whatsAppTarget?.trim() ?: ""
+                val body = intent.whatsAppMessage?.trim() ?: ""
+                val res = deviceController.sendWhatsAppMessage(target, body)
+                val speech = intent.spokenResponse.ifBlank { res.second }
+                ActionResult.WhatsAppAction(speech, target, body)
+            }
+
+            "SCREENSHOT" -> {
+                val res = deviceController.captureScreenshot()
+                val speech = intent.spokenResponse.ifBlank { res.second }
+                ActionResult.ScreenshotAction(speech, res.first)
             }
 
             "SETTINGS" -> {
@@ -383,6 +399,24 @@ class EchoNlpEngine(
                 val targetApp = clean.replace(Regex("^(?i)(open|launch|start)\\s+"), "").trim()
                 val res = deviceController.openApp(targetApp)
                 ActionResult.AppLaunchAction(res.second, targetApp, res.first)
+            }
+
+            // --- SCREENSHOT COMMANDS ---
+            isScreenshotQuery(lower) -> {
+                if (lower.contains("share")) {
+                    val res = deviceController.shareLastScreenshot()
+                    ActionResult.ScreenshotAction(res.second, res.first)
+                } else {
+                    val res = deviceController.captureScreenshot()
+                    ActionResult.ScreenshotAction(res.second, res.first)
+                }
+            }
+
+            // --- WHATSAPP MESSAGES ---
+            isWhatsAppQuery(lower) -> {
+                val (waTarget, waMessage) = extractWhatsAppTargetAndMessage(clean)
+                val res = deviceController.sendWhatsAppMessage(waTarget, waMessage)
+                ActionResult.WhatsAppAction(res.second, waTarget, waMessage)
             }
 
             // --- PHONE CALLS ---
@@ -672,5 +706,59 @@ class EchoNlpEngine(
                 text.contains("next song") || text.contains("skip song") || text.contains("next track") ||
                 text.contains("previous song") || text.contains("previous track") ||
                 text.contains("on spotify") || text.startsWith("spotify ")
+    }
+
+    // --- SCREENSHOT HELPERS ---
+    private fun isScreenshotQuery(text: String): Boolean {
+        return text.contains("screenshot") || text.contains("screen shot") ||
+                text.contains("capture screen") || text.contains("screen capture") ||
+                text.contains("snap screen") || text.contains("take a snap") ||
+                text == "take snap" || text == "snap of screen" || text.contains("screen snap")
+    }
+
+    // --- WHATSAPP HELPERS ---
+    private fun isWhatsAppQuery(text: String): Boolean {
+        return text.contains("whatsapp") || text.contains("whats app")
+    }
+
+    private fun extractWhatsAppTargetAndMessage(raw: String): Pair<String, String> {
+        val clean = raw.trim()
+        val lower = clean.lowercase(Locale.ROOT)
+
+        // If it's just "open whatsapp" or "whatsapp"
+        if (lower == "whatsapp" || lower == "open whatsapp" || lower == "launch whatsapp" || lower == "start whatsapp") {
+            return Pair("", "")
+        }
+
+        // Pattern 1: "send whatsapp message to [target]: [message]" or "send whatsapp to [target] [message]"
+        val sendToRegex = Regex("^(?i)(please\\s+)?(can\\s+you\\s+)?(send\\s+(a\\s+)?whatsapp\\s+(message\\s+)?to|whatsapp\\s+message\\s+to|whatsapp\\s+to|send\\s+message\\s+on\\s+whatsapp\\s+to)\\s+([a-zA-Z0-9+\\s]+?)(\\s*(:|saying|that|,|message|with message)\\s*|\\s+)(.*)$")
+        val match1 = sendToRegex.find(clean)
+        if (match1 != null) {
+            val target = match1.groupValues[6].trim()
+            val msg = match1.groupValues[8].trim()
+            return Pair(target, msg)
+        }
+
+        // Pattern 2: "whatsapp [target] [message]" or "whatsapp [target] saying [message]"
+        val waDirectRegex = Regex("^(?i)(please\\s+)?(can\\s+you\\s+)?whatsapp\\s+([a-zA-Z0-9+\\s]+?)(\\s*(:|saying|that|,|with message)\\s*|\\s+)(.*)$")
+        val match2 = waDirectRegex.find(clean)
+        if (match2 != null) {
+            val target = match2.groupValues[3].trim()
+            val msg = match2.groupValues[5].trim()
+            return Pair(target, msg)
+        }
+
+        // Pattern 3: "message [target] on whatsapp (saying) [message]"
+        val msgOnWaRegex = Regex("^(?i)(please\\s+)?(can\\s+you\\s+)?(message|text)\\s+([a-zA-Z0-9+\\s]+?)\\s+on\\s+whatsapp(\\s*(:|saying|that|,|with message)\\s*|\\s+)(.*)$")
+        val match3 = msgOnWaRegex.find(clean)
+        if (match3 != null) {
+            val target = match3.groupValues[4].trim()
+            val msg = match3.groupValues[6].trim()
+            return Pair(target, msg)
+        }
+
+        // Pattern 4: "send whatsapp message [message]" or "whatsapp [message]"
+        val genericMsg = clean.replace(Regex("^(?i)(please\\s+)?(can\\s+you\\s+)?(send\\s+(a\\s+)?whatsapp\\s+(message)?|whatsapp\\s+message|whatsapp)\\s*:?\\s*"), "").trim()
+        return Pair("", genericMsg)
     }
 }
