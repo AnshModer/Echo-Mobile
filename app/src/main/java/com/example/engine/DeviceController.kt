@@ -697,6 +697,110 @@ class DeviceController(private val context: Context) {
         return Pair(false, "Calculator app not found.")
     }
 
+    // --- CALENDAR & REMINDERS ---
+    fun scheduleCalendarEvent(
+        title: String,
+        startMillis: Long = System.currentTimeMillis() + 3600_000L,
+        endMillis: Long = System.currentTimeMillis() + 7200_000L,
+        location: String = ""
+    ): Pair<Boolean, String> {
+        return try {
+            val intent = Intent(Intent.ACTION_INSERT).apply {
+                data = android.provider.CalendarContract.Events.CONTENT_URI
+                putExtra(android.provider.CalendarContract.Events.TITLE, title)
+                putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMillis)
+                putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
+                if (location.isNotBlank()) {
+                    putExtra(android.provider.CalendarContract.Events.EVENT_LOCATION, location)
+                }
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            Pair(true, "Scheduling event: \"$title\" in your Calendar.")
+        } catch (e: Exception) {
+            Pair(false, "Could not open calendar: ${e.localizedMessage}")
+        }
+    }
+
+    // --- RINGER & SOUND MODES ---
+    fun getRingerMode(): String {
+        return when (audioManager?.ringerMode) {
+            AudioManager.RINGER_MODE_SILENT -> "SILENT"
+            AudioManager.RINGER_MODE_VIBRATE -> "VIBRATE"
+            else -> "NORMAL"
+        }
+    }
+
+    fun setRingerMode(mode: String): Pair<Boolean, String> {
+        if (audioManager == null) return Pair(false, "Audio manager unavailable.")
+        return try {
+            val upper = mode.uppercase(Locale.ROOT)
+            val notifManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+            val hasDndAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                notifManager?.isNotificationPolicyAccessGranted == true
+            } else true
+
+            when (upper) {
+                "SILENT" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !hasDndAccess) {
+                        openSettingsScreen(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                        Pair(false, "Please allow Do Not Disturb access in Settings to enable silent mode.")
+                    } else {
+                        audioManager.ringerMode = AudioManager.RINGER_MODE_SILENT
+                        Pair(true, "Phone set to Silent mode.")
+                    }
+                }
+                "VIBRATE" -> {
+                    audioManager.ringerMode = AudioManager.RINGER_MODE_VIBRATE
+                    Pair(true, "Phone set to Vibrate mode.")
+                }
+                "NORMAL", "SOUND", "RING" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !hasDndAccess && audioManager.ringerMode == AudioManager.RINGER_MODE_SILENT) {
+                        openSettingsScreen(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                        Pair(false, "Please grant Do Not Disturb access to restore ring mode.")
+                    } else {
+                        audioManager.ringerMode = AudioManager.RINGER_MODE_NORMAL
+                        Pair(true, "Phone ringer set to Normal sound.")
+                    }
+                }
+                "DND", "DO_NOT_DISTURB" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        if (!hasDndAccess) {
+                            openSettingsScreen(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                            Pair(false, "Please enable Do Not Disturb permission in Settings.")
+                        } else {
+                            notifManager?.setInterruptionFilter(android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY)
+                            Pair(true, "Do Not Disturb turned on.")
+                        }
+                    } else {
+                        audioManager.ringerMode = AudioManager.RINGER_MODE_SILENT
+                        Pair(true, "Do Not Disturb activated.")
+                    }
+                }
+                else -> Pair(false, "Unknown ringer mode: $mode")
+            }
+        } catch (e: Exception) {
+            Pair(false, "Could not adjust ringer: ${e.localizedMessage}")
+        }
+    }
+
+    // --- QUICK HARDWARE SETTINGS SHORTCUTS ---
+    fun openHotspotSettings() = openSettingsScreen(Settings.ACTION_WIRELESS_SETTINGS)
+    fun openAirplaneModeSettings() = openSettingsScreen(Settings.ACTION_AIRPLANE_MODE_SETTINGS)
+    fun openAutoRotateSettings() = openSettingsScreen(Settings.ACTION_DISPLAY_SETTINGS)
+
+    // --- ASSISTANT UTILITY & GAMES ---
+    fun flipCoin(): Pair<Boolean, String> {
+        val isHeads = java.util.Random().nextBoolean()
+        val text = if (isHeads) "It's Heads!" else "It's Tails!"
+        return Pair(isHeads, text)
+    }
+
+    fun rollDice(): Pair<Int, String> {
+        val roll = java.util.Random().nextInt(6) + 1
+        return Pair(roll, "You rolled a $roll!")
+    }
+
     // --- MEDIA CONTROLS ---
     fun sendMediaCommand(keyCode: Int): String {
         return try {

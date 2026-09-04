@@ -49,6 +49,13 @@ class EchoVoiceManager(
     private val _liveTranscript = MutableStateFlow("")
     val liveTranscript: StateFlow<String> = _liveTranscript.asStateFlow()
 
+    private val _lastActionResult = MutableStateFlow<com.example.engine.ActionResult?>(null)
+    val lastActionResult: StateFlow<com.example.engine.ActionResult?> = _lastActionResult.asStateFlow()
+
+    fun setLastActionResult(result: com.example.engine.ActionResult?) {
+        _lastActionResult.value = result
+    }
+
     init {
         initTts()
     }

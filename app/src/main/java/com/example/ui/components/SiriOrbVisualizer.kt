@@ -10,12 +10,20 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ripple
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -277,4 +285,60 @@ private fun DrawScope.drawSiriHarmonicWave(
         color = color,
         style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
     )
+}
+
+@Composable
+fun SiriVoiceWaveform(
+    state: AssistantState,
+    audioLevel: Float,
+    primaryColor: Color = Color(0xFF00F5D4),
+    secondaryColor: Color = Color(0xFF9D4EDD),
+    modifier: Modifier = Modifier
+) {
+    if (state != AssistantState.LISTENING && state != AssistantState.SPEAKING && state != AssistantState.THINKING) {
+        return
+    }
+
+    val barCount = 17
+    val infiniteTransition = rememberInfiniteTransition(label = "waveform")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2 * PI).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "phase"
+    )
+
+    Row(
+        modifier = modifier
+            .height(28.dp)
+            .fillMaxWidth(0.6f),
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        for (i in 0 until barCount) {
+            val offsetProgress = i.toFloat() / barCount
+            val waveFraction = (sin(offsetProgress * 3 * PI + phase).toFloat() + 1f) / 2f
+
+            val heightFactor = when (state) {
+                AssistantState.LISTENING -> (6f + waveFraction * 20f * (0.35f + audioLevel * 0.9f)).coerceIn(6f, 26f)
+                AssistantState.SPEAKING -> (6f + waveFraction * 18f * (0.3f + audioLevel * 0.7f)).coerceIn(6f, 24f)
+                AssistantState.THINKING -> (4f + waveFraction * 10f).coerceIn(4f, 14f)
+                else -> 4f
+            }
+            val baseHeight = heightFactor.dp
+
+            val barColor = if (i % 2 == 0) primaryColor else secondaryColor
+
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(baseHeight)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(barColor)
+            )
+        }
+    }
 }

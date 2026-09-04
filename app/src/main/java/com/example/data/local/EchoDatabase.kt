@@ -41,6 +41,9 @@ interface AssistantDao {
     @Query("DELETE FROM command_history")
     suspend fun clearHistory()
 
+    @Query("SELECT COUNT(*) FROM voice_notes")
+    suspend fun getNotesCount(): Int
+
     @Query("SELECT * FROM voice_notes ORDER BY timestamp DESC")
     fun getAllNotes(): Flow<List<VoiceNoteItem>>
 

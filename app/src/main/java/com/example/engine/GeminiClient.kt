@@ -14,7 +14,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 data class GeminiTaskIntent(
-    val action: String, // "FLASHLIGHT", "VOLUME", "BATTERY", "APP_LAUNCH", "TIMER", "ALARM", "NOTE", "CALL", "SMS", "WHATSAPP", "SCREENSHOT", "SETTINGS", "WEB_SEARCH", "NAVIGATION", "CALCULATION", "MEDIA", "YOUTUBE", "CHAT"
+    val action: String, // "FLASHLIGHT", "VOLUME", "BATTERY", "APP_LAUNCH", "TIMER", "ALARM", "NOTE", "CALL", "SMS", "WHATSAPP", "SCREENSHOT", "SETTINGS", "WEB_SEARCH", "NAVIGATION", "CALCULATION", "MEDIA", "YOUTUBE", "WEATHER", "DAILY_BRIEF", "CALENDAR", "TRANSLATE", "RINGER_MODE", "COIN_FLIP", "DICE_ROLL", "JOKE", "FACT", "UNIT_CONVERT", "CHAT"
     val state: Boolean? = null,
     val level: Int? = null,
     val volumeDirection: String? = null, // "UP", "DOWN", "MUTE", "UNMUTE", "SET"
@@ -28,7 +28,7 @@ data class GeminiTaskIntent(
     val smsBody: String? = null,
     val whatsAppTarget: String? = null,
     val whatsAppMessage: String? = null,
-    val settingsTarget: String? = null, // "WIFI", "BLUETOOTH", "DISPLAY", "SOUND", "BATTERY", "ASSISTANT", "GESTURE"
+    val settingsTarget: String? = null, // "WIFI", "BLUETOOTH", "DISPLAY", "SOUND", "BATTERY", "ASSISTANT", "GESTURE", "HOTSPOT", "AIRPLANE"
     val searchQuery: String? = null,
     val destination: String? = null,
     val mediaCommand: String? = null, // "PLAY", "PAUSE", "NEXT", "PREVIOUS", "SPOTIFY"
@@ -36,6 +36,18 @@ data class GeminiTaskIntent(
     val youtubeQuery: String? = null,
     val expression: String? = null,
     val calculationResult: String? = null,
+    val weatherLocation: String? = null,
+    val calendarTitle: String? = null,
+    val translateSourceText: String? = null,
+    val translateTargetLanguage: String? = null,
+    val translatedText: String? = null,
+    val ringerMode: String? = null, // "SILENT", "VIBRATE", "NORMAL", "DND"
+    val coinFlipResult: String? = null, // "HEADS", "TAILS"
+    val diceRollResult: Int? = null,
+    val jokeText: String? = null,
+    val factText: String? = null,
+    val conversionFrom: String? = null,
+    val conversionTo: String? = null,
     val spokenResponse: String
 )
 
@@ -106,8 +118,8 @@ class GeminiClient(private val context: Context? = null) {
                     Parameters: "whatsAppTarget": contact name or phone number, "whatsAppMessage": message text
                 11. "SCREENSHOT": Take or capture a screenshot of current screen (e.g. "take a screenshot", "capture screen", "screenshot this", "screen capture", "take screen snap").
                     Parameters: none
-                12. "SETTINGS": Open system settings (e.g. "turn on wifi settings", "bluetooth settings", "change display brightness", "assistant settings", "power button shortcuts").
-                    Parameters: "settingsTarget": "WIFI"|"BLUETOOTH"|"DISPLAY"|"SOUND"|"BATTERY"|"ASSISTANT"|"GESTURE"
+                12. "SETTINGS": Open system settings (e.g. "turn on wifi settings", "bluetooth settings", "change display brightness", "assistant settings", "power button shortcuts", "open hotspot", "airplane mode").
+                    Parameters: "settingsTarget": "WIFI"|"BLUETOOTH"|"DISPLAY"|"SOUND"|"BATTERY"|"ASSISTANT"|"GESTURE"|"HOTSPOT"|"AIRPLANE"
                 13. "NAVIGATION": Open map directions (e.g. "take me to central park", "directions to nearest hospital", "navigate to airport").
                     Parameters: "destination": place name or address
                 14. "WEB_SEARCH": Search the web / Google (e.g. "search for latest news", "google quantum computing").
@@ -118,7 +130,27 @@ class GeminiClient(private val context: Context? = null) {
                     Parameters: "mediaCommand": "PLAY"|"PAUSE"|"NEXT"|"PREVIOUS"|"SPOTIFY", "mediaTarget": optional song name
                 17. "CALCULATION": Math calculation (e.g. "what is 24 times 15", "calculate 15 percent of 450").
                     Parameters: "expression": "24 * 15", "calculationResult": "360"
-                18. "CHAT": General conversational queries, chit-chat, knowledge questions, explanations, advice, jokes, facts (e.g. "who was Albert Einstein", "tell me a joke", "how does photosynthesis work", "hello how are you").
+                18. "WEATHER": Weather query and forecast (e.g. "what is the weather like", "weather in Tokyo", "is it raining outside", "temperature today").
+                    Parameters: "weatherLocation": optional city/location name or null for current area
+                19. "DAILY_BRIEF": Good morning briefing or day overview (e.g. "good morning", "brief me", "how does my day look", "daily summary").
+                    Parameters: none
+                20. "CALENDAR": Calendar events and meetings (e.g. "schedule meeting with Dr Smith tomorrow at 3pm", "add calendar event Lunch with Alex on Friday").
+                    Parameters: "calendarTitle": event title
+                21. "TRANSLATE": Language translation (e.g. "translate thank you very much to French", "how to say where is the train in Spanish", "say hello in Japanese").
+                    Parameters: "translateSourceText": source phrase, "translateTargetLanguage": language name, "translatedText": translation
+                22. "RINGER_MODE": Sound mode (e.g. "silent phone", "put on vibrate", "normal sound", "turn on do not disturb").
+                    Parameters: "ringerMode": "SILENT"|"VIBRATE"|"NORMAL"|"DND"
+                23. "COIN_FLIP": Flip a coin (e.g. "flip a coin", "heads or tails", "toss coin").
+                    Parameters: "coinFlipResult": "HEADS"|"TAILS"
+                24. "DICE_ROLL": Roll a dice (e.g. "roll a dice", "roll die", "pick a number from 1 to 6").
+                    Parameters: "diceRollResult": 1-6
+                25. "JOKE": Jokes and humor (e.g. "tell me a joke", "make me laugh").
+                    Parameters: "jokeText": funny joke
+                26. "FACT": Trivia and fun facts (e.g. "tell me a fun fact", "random fact", "did you know").
+                    Parameters: "factText": interesting fact
+                27. "UNIT_CONVERT": Unit and currency conversion (e.g. "convert 50 miles to kilometers", "100 usd to eur", "75 fahrenheit in celsius").
+                    Parameters: "conversionFrom": "50 miles", "conversionTo": "kilometers", "calculationResult": "80.47 km"
+                28. "CHAT": General conversational queries, explanations, advice, chit-chat (e.g. "who was Albert Einstein", "how does photosynthesis work", "hello how are you").
                     Parameters: none
 
                 Return a JSON object with this exact schema:
@@ -137,7 +169,7 @@ class GeminiClient(private val context: Context? = null) {
                   "smsBody": "message string",
                   "whatsAppTarget": "name or number",
                   "whatsAppMessage": "message string",
-                  "settingsTarget": "WIFI"|"BLUETOOTH"|"DISPLAY"|"SOUND"|"BATTERY"|"ASSISTANT"|"GESTURE",
+                  "settingsTarget": "WIFI"|"BLUETOOTH"|"DISPLAY"|"SOUND"|"BATTERY"|"ASSISTANT"|"GESTURE"|"HOTSPOT"|"AIRPLANE",
                   "destination": "place string",
                   "searchQuery": "query string",
                   "youtubeQuery": "query string",
@@ -145,6 +177,18 @@ class GeminiClient(private val context: Context? = null) {
                   "mediaTarget": "song string",
                   "expression": "math string",
                   "calculationResult": "result string",
+                  "weatherLocation": "city string",
+                  "calendarTitle": "event title",
+                  "translateSourceText": "phrase",
+                  "translateTargetLanguage": "Spanish",
+                  "translatedText": "translation",
+                  "ringerMode": "SILENT"|"VIBRATE"|"NORMAL"|"DND",
+                  "coinFlipResult": "HEADS"|"TAILS",
+                  "diceRollResult": 6,
+                  "jokeText": "joke",
+                  "factText": "fact",
+                  "conversionFrom": "from unit",
+                  "conversionTo": "to unit",
                   "spokenResponse": "Short natural voice response (1-2 sentences maximum, never use asterisks, markdown, bullets, or emojis as this is spoken by TTS)."
                 }
             """.trimIndent()
@@ -217,6 +261,18 @@ class GeminiClient(private val context: Context? = null) {
                 youtubeQuery = if (json.has("youtubeQuery")) json.optString("youtubeQuery") else null,
                 expression = if (json.has("expression")) json.optString("expression") else null,
                 calculationResult = if (json.has("calculationResult")) json.optString("calculationResult") else null,
+                weatherLocation = if (json.has("weatherLocation")) json.optString("weatherLocation") else null,
+                calendarTitle = if (json.has("calendarTitle")) json.optString("calendarTitle") else null,
+                translateSourceText = if (json.has("translateSourceText")) json.optString("translateSourceText") else null,
+                translateTargetLanguage = if (json.has("translateTargetLanguage")) json.optString("translateTargetLanguage") else null,
+                translatedText = if (json.has("translatedText")) json.optString("translatedText") else null,
+                ringerMode = if (json.has("ringerMode")) json.optString("ringerMode") else null,
+                coinFlipResult = if (json.has("coinFlipResult")) json.optString("coinFlipResult") else null,
+                diceRollResult = if (json.has("diceRollResult")) json.optInt("diceRollResult") else null,
+                jokeText = if (json.has("jokeText")) json.optString("jokeText") else null,
+                factText = if (json.has("factText")) json.optString("factText") else null,
+                conversionFrom = if (json.has("conversionFrom")) json.optString("conversionFrom") else null,
+                conversionTo = if (json.has("conversionTo")) json.optString("conversionTo") else null,
                 spokenResponse = if (spokenResponse.isNotBlank()) spokenResponse else "Done."
             )
         } catch (e: Exception) {

@@ -56,9 +56,33 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.SignalCellularAlt
+import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.Eco
+import androidx.compose.material.icons.filled.CameraEnhance
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.ViewInAr
+import androidx.compose.material.icons.filled.AutoMode
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.material3.AssistChip
@@ -66,9 +90,14 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -112,6 +141,12 @@ import com.example.engine.VolumeInfo
 import com.example.service.EchoFloatingBubbleService
 import com.example.service.EchoNotificationHelper
 import com.example.engine.ContactLookupHelper
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.WbSunny
+import com.example.ui.components.AssistantActiveResultCard
 import com.example.ui.components.BatteryStatusCard
 import com.example.ui.components.ContactCallCard
 import com.example.ui.components.FlashlightControlCard
@@ -121,6 +156,9 @@ import com.example.ui.components.QuickAppLauncherGrid
 import com.example.ui.components.RedmiSetupGuide
 import com.example.ui.components.ScreenshotControlCard
 import com.example.ui.components.SiriOrbVisualizer
+import com.example.ui.components.SiriVoiceWaveform
+import com.example.ui.components.StitchMultimodalSmartCard
+import com.example.ui.components.VersionComparisonSheet
 import com.example.ui.components.VolumeControlCard
 import com.example.ui.components.WhatsAppMessageCard
 import com.example.ui.theme.DarkNebulaSurface
@@ -135,6 +173,16 @@ import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.VividViolet
+import com.example.ui.theme.StitchObsidianLowest
+import com.example.ui.theme.StitchCyanContainer
+import com.example.ui.theme.StitchCyanFixed
+import com.example.ui.theme.StitchVioletContainer
+import com.example.ui.theme.StitchSurfaceLow
+import com.example.ui.theme.StitchSurface
+import com.example.ui.theme.StitchSurfaceHigh
+import com.example.ui.theme.StitchSurfaceHighest
+import com.example.ui.theme.StitchOnSurface
+import com.example.ui.theme.StitchOnSurfaceVariant
 import com.example.voice.AssistantState
 import com.example.voice.EchoVoiceManager
 import kotlinx.coroutines.launch
@@ -285,6 +333,7 @@ class MainActivity : ComponentActivity() {
         coroutineScope.launch {
             voiceManager.setState(AssistantState.THINKING)
             val result = nlpEngine.processQuery(query)
+            voiceManager.setLastActionResult(result)
             voiceManager.setLiveTranscript(result.responseText)
             voiceManager.speak(result.responseText)
         }
@@ -294,6 +343,13 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         voiceManager.destroy()
     }
+}
+
+enum class DashboardTab(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    VOICE("Echo", Icons.Default.Mic),
+    CONTROLS("Lens", Icons.Default.ViewInAr),
+    HISTORY("Timeline", Icons.Default.History),
+    SETUP("Skills", Icons.Default.AutoMode)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -314,15 +370,19 @@ fun MainAssistantDashboard(
     val state by voiceManager.assistantState.collectAsState()
     val audioLevel by voiceManager.rmsAudioLevel.collectAsState()
     val transcript by voiceManager.liveTranscript.collectAsState()
+    val lastActionResult by voiceManager.lastActionResult.collectAsState()
 
     val historyList by database.assistantDao().getAllHistory().collectAsState(initial = emptyList())
     val notesList by database.assistantDao().getAllNotes().collectAsState(initial = emptyList())
 
+    var currentTab by remember { mutableStateOf(DashboardTab.VOICE) }
     var isTorchOn by remember { mutableStateOf(DeviceController.isFlashlightOn) }
     var batteryInfo by remember { mutableStateOf(deviceController.getBatteryInfo()) }
     var volumeInfo by remember { mutableStateOf(deviceController.getVolumeInfo()) }
     var selectedOrbTheme by remember { mutableStateOf(preferences.orbTheme) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showComparisonSheet by remember { mutableStateOf(false) }
+    var showShowcaseWeather by remember { mutableStateOf(true) }
 
     var textInput by remember { mutableStateOf("") }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -335,6 +395,14 @@ fun MainAssistantDashboard(
     val hasOverlayPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
     val quickActionChips = listOf(
+        Pair("Weather in New York", Icons.Default.WbSunny),
+        Pair("Good Morning Briefing", Icons.Default.LightMode),
+        Pair("Translate 'Hello' to French", Icons.Default.Translate),
+        Pair("Schedule Team Meeting", Icons.Default.CalendarMonth),
+        Pair("Silent Mode", Icons.Default.NotificationsOff),
+        Pair("Flip a Coin", Icons.Default.AutoAwesome),
+        Pair("Roll a Dice", Icons.Default.AutoAwesome),
+        Pair("100 Miles in KM", Icons.Default.Calculate),
         Pair("WhatsApp Mom: I'm late", Icons.Default.Chat),
         Pair("Take Screenshot", Icons.Default.AutoAwesome),
         Pair("Call Mom", Icons.Default.Call),
@@ -354,36 +422,140 @@ fun MainAssistantDashboard(
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .background(ObsidianBg)
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF131728),
+                        StitchSurfaceLow,
+                        StitchObsidianLowest
+                    ),
+                    radius = 1600f
+                )
+            )
             .statusBarsPadding()
-            .navigationBarsPadding()
             .imePadding()
             .testTag("main_scaffold"),
-        containerColor = ObsidianBg
+        containerColor = Color.Transparent,
+        floatingActionButton = {
+            if (currentTab != DashboardTab.VOICE) {
+                FloatingActionButton(
+                    onClick = {
+                        currentTab = DashboardTab.VOICE
+                        if (hasMicPermission) {
+                            voiceManager.startListening()
+                        } else {
+                            onRequestMicPermission()
+                        }
+                    },
+                    containerColor = StitchCyanContainer,
+                    contentColor = Color(0xFF00363D),
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .testTag("quick_fab_mic")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = "Quick Speak",
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+        },
+        bottomBar = {
+            NavigationBar(
+                containerColor = StitchObsidianLowest.copy(alpha = 0.96f),
+                tonalElevation = 8.dp,
+                modifier = Modifier
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.verticalGradient(listOf(Color(0xFF262D3D), Color.Transparent)),
+                        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                    )
+                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+            ) {
+                DashboardTab.values().forEach { tab ->
+                    val isSelected = currentTab == tab
+                    NavigationBarItem(
+                        selected = isSelected,
+                        onClick = { currentTab = tab },
+                        icon = {
+                            Icon(
+                                imageVector = tab.icon,
+                                contentDescription = tab.title,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = tab.title,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Color(0xFF00363D),
+                            selectedTextColor = StitchCyanContainer,
+                            indicatorColor = StitchCyanContainer,
+                            unselectedIconColor = StitchOnSurfaceVariant,
+                            unselectedTextColor = StitchOnSurfaceVariant
+                        )
+                    )
+                }
+            }
+        }
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Header: Echo Logo, Title, and Settings button
+            // Stitch Status Bar & Meta
             item {
-                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = java.text.SimpleDateFormat("h:mm", java.util.Locale.getDefault()).format(java.util.Date()),
+                        fontWeight = FontWeight.Bold,
+                        color = StitchOnSurface,
+                        fontSize = 12.sp
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Wifi, contentDescription = null, tint = StitchOnSurfaceVariant, modifier = Modifier.size(15.dp))
+                        Icon(Icons.Default.SignalCellularAlt, contentDescription = null, tint = StitchOnSurfaceVariant, modifier = Modifier.size(15.dp))
+                        Icon(Icons.Default.BatteryFull, contentDescription = null, tint = StitchOnSurfaceVariant, modifier = Modifier.size(17.dp))
+                    }
+                }
+            }
+
+            // Stitch Header: Echo Assistant Brand, PRO badge, Controls & Profile
+            item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Box(
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(40.dp)
                                 .clip(CircleShape)
                                 .background(
                                     Brush.linearGradient(
-                                        listOf(Color(selectedOrbTheme.primaryColorHex), Color(selectedOrbTheme.secondaryColorHex))
+                                        listOf(StitchCyanContainer, StitchVioletContainer)
                                     )
                                 ),
                             contentAlignment = Alignment.Center
@@ -391,477 +563,814 @@ fun MainAssistantDashboard(
                             Text(
                                 text = "E",
                                 color = Color.Black,
-                                fontWeight = FontWeight.ExtraBold,
+                                fontWeight = FontWeight.Black,
                                 fontSize = 20.sp
                             )
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = "Echo Assistant",
+                                    fontWeight = FontWeight.Bold,
+                                    color = StitchOnSurface,
+                                    fontSize = 18.sp,
+                                    letterSpacing = (-0.5).sp
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(StitchCyanContainer.copy(alpha = 0.2f))
+                                        .border(1.dp, StitchCyanContainer.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "PRO",
+                                        color = StitchCyanFixed,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                            }
                             Text(
-                                text = "Echo Assistant",
-                                fontWeight = FontWeight.ExtraBold,
-                                color = TextPrimary,
-                                fontSize = 20.sp
-                            )
-                            Text(
-                                text = "Default Voice & Device Controller",
-                                color = NeonCyan,
-                                fontSize = 12.sp
+                                text = "24-bit Neural Audio Engine",
+                                color = StitchCyanContainer,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = { showComparisonSheet = true },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(StitchCyanContainer.copy(alpha = 0.15f))
+                                .testTag("open_comparison_header_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "Version Comparison",
+                                tint = StitchCyanContainer,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+
                         IconButton(
                             onClick = onOpenAssistantOverlay,
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
-                                .background(VividViolet.copy(alpha = 0.2f))
+                                .background(StitchVioletContainer.copy(alpha = 0.25f))
                                 .testTag("launch_siri_overlay_btn")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.PowerSettingsNew,
                                 contentDescription = "Siri Circle Overlay",
-                                tint = VividViolet,
-                                modifier = Modifier.size(20.dp)
+                                tint = Color(0xFFD8B4FE),
+                                modifier = Modifier.size(17.dp)
                             )
                         }
 
                         IconButton(
                             onClick = { showSettingsSheet = true },
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF1E293B))
+                                .background(StitchSurfaceHigh)
                                 .testTag("open_settings_btn")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
                                 contentDescription = "Settings",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(20.dp)
+                                tint = StitchOnSurfaceVariant,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(StitchCyanFixed)
+                                .clickable { showSettingsSheet = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "Profile",
+                                tint = Color(0xFF00363D),
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
                 }
             }
 
-            // Siri Dynamic Animated Orb Section
+            // Category Segmented Chips
             item {
-                GlassmorphicCard(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("siri_orb_hero_card"),
-                    borderColor = Color(selectedOrbTheme.primaryColorHex).copy(alpha = 0.35f),
-                    backgroundColor = DarkNebulaSurface.copy(alpha = 0.9f),
-                    contentPadding = 20.dp
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(StitchSurfaceLow)
+                        .border(1.dp, Color(0xFF262D3D), RoundedCornerShape(14.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        SiriOrbVisualizer(
-                            state = state,
-                            audioLevel = audioLevel,
-                            orbTheme = selectedOrbTheme,
-                            sizeDp = 200.dp,
-                            onClick = {
-                                if (state == AssistantState.LISTENING) {
-                                    voiceManager.stopListening()
-                                } else {
-                                    if (hasMicPermission) {
-                                        voiceManager.startListening()
-                                    } else {
-                                        onRequestMicPermission()
+                    DashboardTab.values().forEach { tab ->
+                        val isSelected = currentTab == tab
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSelected) StitchCyanContainer.copy(alpha = 0.18f) else Color.Transparent)
+                                .clickable { currentTab = tab }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = tab.title,
+                                color = if (isSelected) StitchCyanContainer else StitchOnSurfaceVariant,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            when (currentTab) {
+                DashboardTab.VOICE -> {
+                    // Siri Dynamic Animated Orb Section
+                    item {
+                        GlassmorphicCard(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("siri_orb_hero_card"),
+                            borderColor = Color(selectedOrbTheme.primaryColorHex).copy(alpha = 0.35f),
+                            backgroundColor = DarkNebulaSurface.copy(alpha = 0.9f),
+                            contentPadding = 20.dp
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                SiriOrbVisualizer(
+                                    state = state,
+                                    audioLevel = audioLevel,
+                                    orbTheme = selectedOrbTheme,
+                                    sizeDp = 200.dp,
+                                    onClick = {
+                                        if (state == AssistantState.LISTENING) {
+                                            voiceManager.stopListening()
+                                        } else {
+                                            if (hasMicPermission) {
+                                                voiceManager.startListening()
+                                            } else {
+                                                onRequestMicPermission()
+                                            }
+                                        }
+                                    }
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                SiriVoiceWaveform(
+                                    state = state,
+                                    audioLevel = audioLevel,
+                                    primaryColor = Color(selectedOrbTheme.primaryColorHex),
+                                    secondaryColor = Color(selectedOrbTheme.secondaryColorHex)
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                val dotAlpha by rememberInfiniteTransition(label = "dot_pulse").animateFloat(
+                                    initialValue = 0.3f,
+                                    targetValue = 1f,
+                                    animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+                                    label = "dot"
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(StitchSurfaceHigh.copy(alpha = 0.65f))
+                                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(7.dp)
+                                                .clip(CircleShape)
+                                                .background(StitchCyanContainer.copy(alpha = if (state == AssistantState.LISTENING) dotAlpha else 1f))
+                                        )
+                                        val chipText = when (state) {
+                                            AssistantState.LISTENING -> "LISTENING • 24-BIT NEURAL AUDIO ENGINE"
+                                            AssistantState.THINKING -> "PROCESSING • NEURAL REASONING CORE"
+                                            AssistantState.SPEAKING -> "SPEAKING • FLUID VOICE SYNTHESIS"
+                                            AssistantState.ERROR -> "RETRY • TAP ORB TO SPEAK"
+                                            AssistantState.IDLE -> "READY • 24-BIT NEURAL AUDIO ENGINE"
+                                        }
+                                        Text(
+                                            text = chipText,
+                                            color = StitchOnSurfaceVariant,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            letterSpacing = 0.6.sp
+                                        )
                                     }
                                 }
                             }
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        val stateMessage = when (state) {
-                            AssistantState.LISTENING -> "Listening to your voice..."
-                            AssistantState.THINKING -> "Processing command..."
-                            AssistantState.SPEAKING -> "Speaking response..."
-                            AssistantState.ERROR -> "Couldn't understand. Tap to retry."
-                            AssistantState.IDLE -> "Tap orb to speak or type below"
-                        }
-
-                        Text(
-                            text = stateMessage,
-                            fontWeight = FontWeight.Bold,
-                            color = when (state) {
-                                AssistantState.LISTENING -> NeonCyan
-                                AssistantState.THINKING -> VividViolet
-                                AssistantState.SPEAKING -> RadiantMagenta
-                                else -> TextSecondary
-                            },
-                            fontSize = 15.sp,
-                            textAlign = TextAlign.Center
-                        )
-
-                        if (transcript.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xFF131B2E))
-                                    .padding(12.dp)
-                            ) {
-                                Text(
-                                    text = transcript,
-                                    color = TextPrimary,
-                                    fontSize = 13.sp,
-                                    textAlign = TextAlign.Center,
-                                    lineHeight = 18.sp,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
                         }
                     }
-                }
-            }
 
-            // Quick Query Suggestions
-            item {
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(quickActionChips) { (query, icon) ->
-                        AssistChip(
-                            onClick = { onExecuteQuery(query) },
-                            label = { Text(query, color = TextPrimary, fontSize = 12.sp) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = null,
-                                    tint = NeonCyan,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            },
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = Color(0xFF131C30)
-                            ),
-                            border = AssistChipDefaults.assistChipBorder(
-                                enabled = true,
-                                borderColor = Color(0xFF27354E)
-                            )
-                        )
-                    }
-                }
-            }
-
-            // Silent Query Input
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = textInput,
-                        onValueChange = { textInput = it },
-                        placeholder = { Text("Ask Echo or type command...", color = TextMuted, fontSize = 13.sp) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("main_text_input"),
-                        singleLine = true,
-                        shape = RoundedCornerShape(20.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = NeonCyan,
-                            unfocusedBorderColor = Color(0xFF27354E),
-                            focusedContainerColor = DarkNebulaSurface,
-                            unfocusedContainerColor = DarkNebulaSurface,
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary
-                        ),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(
-                            onSend = {
-                                if (textInput.isNotBlank()) {
-                                    onExecuteQuery(textInput)
-                                    textInput = ""
-                                    keyboardController?.hide()
-                                }
-                            }
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    IconButton(
-                        onClick = {
-                            if (textInput.isNotBlank()) {
-                                onExecuteQuery(textInput)
-                                textInput = ""
-                                keyboardController?.hide()
-                            } else {
-                                if (hasMicPermission) voiceManager.startListening() else onRequestMicPermission()
-                            }
-                        },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(if (textInput.isNotBlank()) NeonCyan else VividViolet)
-                            .testTag("main_send_btn")
-                    ) {
-                        Icon(
-                            imageVector = if (textInput.isNotBlank()) Icons.Default.Send else Icons.Default.Mic,
-                            contentDescription = "Submit",
-                            tint = if (textInput.isNotBlank()) Color.Black else Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            }
-
-            // Section 1: Mobile Device Controls
-            item {
-                Text(
-                    text = "Device Controls Station",
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
-                    fontSize = 16.sp
-                )
-            }
-
-            item {
-                FlashlightControlCard(
-                    isOn = isTorchOn,
-                    onToggle = { enable ->
-                        deviceController.toggleFlashlight(enable)
-                        isTorchOn = DeviceController.isFlashlightOn
-                    }
-                )
-            }
-
-            item {
-                BatteryStatusCard(
-                    batteryInfo = batteryInfo,
-                    onRefresh = {
-                        batteryInfo = deviceController.getBatteryInfo()
-                    }
-                )
-            }
-
-            item {
-                VolumeControlCard(
-                    volumeInfo = volumeInfo,
-                    onVolumeChange = { pct ->
-                        deviceController.setMediaVolumePercent(pct)
-                        volumeInfo = deviceController.getVolumeInfo()
-                    },
-                    onMuteToggle = { mute ->
-                        deviceController.muteVolume(mute)
-                        volumeInfo = deviceController.getVolumeInfo()
-                    }
-                )
-            }
-
-            item {
-                ContactCallCard(
-                    deviceController = deviceController,
-                    onCallRequest = { target ->
-                        onExecuteQuery(if (target.startsWith("call ", ignoreCase = true) || target.startsWith("dial ", ignoreCase = true)) target else "call $target")
-                    },
-                    onRequestContactPermission = onRequestContactPermission
-                )
-            }
-
-            item {
-                WhatsAppMessageCard(
-                    deviceController = deviceController,
-                    onRequestContactPermission = onRequestContactPermission,
-                    onSendWhatsApp = { target, message ->
-                        val result = deviceController.sendWhatsAppMessage(target, message)
-                        voiceManager.speak(result.second)
-                        Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
-                    }
-                )
-            }
-
-            item {
-                ScreenshotControlCard(
-                    deviceController = deviceController,
-                    onTakeScreenshot = {
-                        val currentAct = ActivityTracker.getCurrentActivity() ?: (context as? android.app.Activity)
-                        val result = deviceController.captureScreenshot(currentAct) { success, msg, uri ->
-                            (context as? android.app.Activity)?.runOnUiThread {
-                                if (success) {
-                                    Toast.makeText(context, "Screenshot captured and saved to Gallery!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-                        voiceManager.speak(result.second)
-                        Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
-                    },
-                    onShareScreenshot = {
-                        val result = deviceController.shareLastScreenshot()
-                        voiceManager.speak(result.second)
-                        Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
-                    }
-                )
-            }
-
-            item {
-                QuickAppLauncherGrid(
-                    onLaunchApp = { appName ->
-                        deviceController.openApp(appName)
-                    }
-                )
-            }
-
-            // Section 2: Floating Orb & Redmi Assistant Setup
-            item {
-                Text(
-                    text = "Floating Orb & System Shortcuts",
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
-                    fontSize = 16.sp
-                )
-            }
-
-            // Dedicated System Floating Orb Card
-            item {
-                var isOrbActive by remember { mutableStateOf(preferences.isFloatingBubbleEnabled) }
-                GlassmorphicCard(
-                    borderColor = if (isOrbActive) VividViolet.copy(alpha = 0.6f) else NeonCyan.copy(alpha = 0.3f),
-                    backgroundColor = DarkNebulaSurface.copy(alpha = 0.95f)
-                ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
+                    // Stitch Live Conversational Context Stream
+                    item {
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            val userQueryText = if (transcript.isNotEmpty()) transcript else "How's the weather in San Francisco today?"
+                            // User Pill (aligned right)
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            Brush.linearGradient(
-                                                listOf(
-                                                    NeonCyan,
-                                                    VividViolet
-                                                )
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
+                                        .fillMaxWidth(0.85f)
+                                        .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp))
+                                        .background(StitchSurfaceHigh.copy(alpha = 0.75f))
+                                        .clickable {
+                                            if (transcript.isEmpty()) {
+                                                onExecuteQuery("How's the weather in San Francisco today?")
+                                            }
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Mic,
-                                        contentDescription = "Floating Orb",
-                                        tint = Color.Black,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                                Column {
-                                    Text(
-                                        text = "System Floating Orb Overlay",
-                                        fontWeight = FontWeight.Bold,
-                                        color = TextPrimary,
-                                        fontSize = 15.sp
-                                    )
-                                    Text(
-                                        text = if (isOrbActive) "Active on screen • Drag & tap to speak" else "Stays visible over games & other apps",
-                                        color = if (isOrbActive) NeonCyan else TextSecondary,
-                                        fontSize = 12.sp
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.RecordVoiceOver,
+                                            contentDescription = null,
+                                            tint = StitchCyanContainer,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Text(
+                                            text = "\"$userQueryText\"",
+                                            color = StitchCyanFixed,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
                                 }
                             }
 
-                            Switch(
-                                checked = isOrbActive,
-                                onCheckedChange = { enable ->
-                                    if (enable && !hasOverlayPermission) {
-                                        onRequestOverlayPermission()
-                                    } else {
-                                        isOrbActive = enable
-                                        preferences.isFloatingBubbleEnabled = enable
-                                        if (enable) {
-                                            EchoFloatingBubbleService.start(context)
-                                        } else {
-                                            EchoFloatingBubbleService.stop(context)
+                            // Assistant Pill (aligned left)
+                            val assistantResponseText = when {
+                                lastActionResult != null -> lastActionResult!!.responseText
+                                state == AssistantState.LISTENING -> "Listening to your voice..."
+                                state == AssistantState.THINKING -> "Thinking and executing your command..."
+                                else -> "It's currently 68°F and sunny in San Francisco with clear skies and a gentle westerly breeze."
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Start
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.92f)
+                                        .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 16.dp))
+                                        .background(StitchSurfaceLow.copy(alpha = 0.85f))
+                                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.Top,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(22.dp)
+                                                .clip(CircleShape)
+                                                .background(StitchCyanContainer.copy(alpha = 0.2f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AutoAwesome,
+                                                contentDescription = null,
+                                                tint = StitchCyanContainer,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = assistantResponseText,
+                                            color = StitchOnSurface,
+                                            fontSize = 14.sp,
+                                            lineHeight = 20.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Multimodal Smart Action Panel
+                    if (lastActionResult != null) {
+                        item {
+                            AssistantActiveResultCard(
+                                actionResult = lastActionResult!!,
+                                onFollowUp = onExecuteQuery,
+                                onSpeak = { voiceManager.speak(it) },
+                                onDismiss = { voiceManager.setLastActionResult(null) }
+                            )
+                        }
+                    } else if (showShowcaseWeather) {
+                        item {
+                            StitchMultimodalSmartCard(
+                                onDismiss = { showShowcaseWeather = false },
+                                onForecastClick = { onExecuteQuery("show 5-day forecast") }
+                            )
+                        }
+                    }
+
+                    // Horizontal Scrolling Contextual Assistant Skills Chips
+                    item {
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val stitchChips = listOf(
+                                Triple("Turn on Torch", Icons.Default.FlashlightOn, "turn on flashlight"),
+                                Triple("Set Timer 15m", Icons.Default.Timer, "set timer for 15 minutes"),
+                                Triple("Send Message", Icons.Default.Chat, "send message"),
+                                Triple("Play Focus Beats", Icons.Default.Headphones, "play music"),
+                                Triple("Summarize Notes", Icons.Default.Psychology, "summarize notes"),
+                                Triple("Battery Status", Icons.Default.Refresh, "check battery")
+                            )
+                            items(stitchChips) { (title, icon, query) ->
+                                Box(
+                                    modifier = Modifier
+                                        .height(38.dp)
+                                        .clip(RoundedCornerShape(19.dp))
+                                        .background(StitchSurfaceHigh.copy(alpha = 0.8f))
+                                        .clickable { onExecuteQuery(query) }
+                                        .padding(horizontal = 14.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            tint = StitchCyanContainer,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = title,
+                                            color = StitchOnSurface,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Grounded Kinetic Voice Capsule Deck
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                                .clip(RoundedCornerShape(28.dp))
+                                .background(StitchSurface.copy(alpha = 0.95f))
+                                .border(1.dp, Color(0xFF283044), RoundedCornerShape(28.dp))
+                                .padding(horizontal = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Multimodal Lens Trigger
+                            IconButton(
+                                onClick = {
+                                    val currentAct = ActivityTracker.getCurrentActivity() ?: (context as? android.app.Activity)
+                                    deviceController.captureScreenshot(currentAct) { success, msg, _ ->
+                                        (context as? android.app.Activity)?.runOnUiThread {
+                                            Toast.makeText(context, if (success) "Multimodal Visual Snapshot Captured!" else msg, Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color.Black,
-                                    checkedTrackColor = VividViolet
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CameraEnhance,
+                                    contentDescription = "Open Multimodal Lens",
+                                    tint = StitchOnSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            // Transcribing Input
+                            OutlinedTextField(
+                                value = textInput,
+                                onValueChange = { textInput = it },
+                                placeholder = {
+                                    Text(
+                                        "Ask Echo anything or tap to speak...",
+                                        color = StitchOnSurfaceVariant.copy(alpha = 0.7f),
+                                        fontSize = 13.sp
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("main_text_input"),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color.Transparent,
+                                    unfocusedBorderColor = Color.Transparent,
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedTextColor = StitchOnSurface,
+                                    unfocusedTextColor = StitchOnSurface
+                                ),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions(
+                                    onSend = {
+                                        if (textInput.isNotBlank()) {
+                                            onExecuteQuery(textInput)
+                                            textInput = ""
+                                            keyboardController?.hide()
+                                        }
+                                    }
                                 )
                             )
-                        }
 
-                        if (!hasOverlayPermission) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Button(
-                                onClick = onRequestOverlayPermission,
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = VividViolet),
-                                shape = RoundedCornerShape(12.dp)
+                            // Hero Glow Push-To-Talk Mic Pod
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(StitchCyanContainer, StitchVioletContainer)
+                                        )
+                                    )
+                                    .clickable {
+                                        if (textInput.isNotBlank()) {
+                                            onExecuteQuery(textInput)
+                                            textInput = ""
+                                            keyboardController?.hide()
+                                        } else {
+                                            if (state == AssistantState.LISTENING) {
+                                                voiceManager.stopListening()
+                                            } else {
+                                                if (hasMicPermission) voiceManager.startListening() else onRequestMicPermission()
+                                            }
+                                        }
+                                    }
+                                    .testTag("mic_action_trigger"),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text("Grant 'Display Over Other Apps' Permission", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Icon(
+                                    imageVector = if (textInput.isNotBlank()) Icons.Default.Send else if (state == AssistantState.LISTENING) Icons.Default.MicOff else Icons.Default.Mic,
+                                    contentDescription = "Voice Action",
+                                    tint = Color(0xFF00363D),
+                                    modifier = Modifier.size(22.dp)
+                                )
                             }
                         }
+                    }
+
+                    // Version Upgrade Comparison Banner
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(Color(0xFF1B1936), Color(0xFF11172A))
+                                    )
+                                )
+                                .border(1.dp, VividViolet.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                                .clickable { showComparisonSheet = true }
+                                .padding(14.dp)
+                                .testTag("open_version_comparison_btn")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(CircleShape)
+                                            .background(VividViolet.copy(alpha = 0.25f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = NeonCyan, modifier = Modifier.size(20.dp))
+                                    }
+                                    Column {
+                                        Text("Previous vs Pro Version", fontWeight = FontWeight.Bold, color = TextPrimary, fontSize = 14.sp)
+                                        Text("Compare 28+ Siri & Google Assistant features", color = NeonCyan, fontSize = 11.sp)
+                                    }
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(VividViolet.copy(alpha = 0.35f))
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text("Compare", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        QuickAppLauncherGrid(
+                            onLaunchApp = { appName ->
+                                deviceController.openApp(appName)
+                            }
+                        )
+                    }
+                }
+
+                DashboardTab.CONTROLS -> {
+                    item {
+                        Column {
+                            Text(
+                                text = "Device Controls Station",
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                fontSize = 16.sp
+                            )
+                            Text(
+                                text = "Hardware switches & direct mobile shortcuts",
+                                color = TextMuted,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    item {
+                        FlashlightControlCard(
+                            isOn = isTorchOn,
+                            onToggle = { enable ->
+                                deviceController.toggleFlashlight(enable)
+                                isTorchOn = DeviceController.isFlashlightOn
+                            }
+                        )
+                    }
+
+                    item {
+                        BatteryStatusCard(
+                            batteryInfo = batteryInfo,
+                            onRefresh = {
+                                batteryInfo = deviceController.getBatteryInfo()
+                            }
+                        )
+                    }
+
+                    item {
+                        VolumeControlCard(
+                            volumeInfo = volumeInfo,
+                            onVolumeChange = { pct ->
+                                deviceController.setMediaVolumePercent(pct)
+                                volumeInfo = deviceController.getVolumeInfo()
+                            },
+                            onMuteToggle = { mute ->
+                                deviceController.muteVolume(mute)
+                                volumeInfo = deviceController.getVolumeInfo()
+                            }
+                        )
+                    }
+
+                    item {
+                        ContactCallCard(
+                            deviceController = deviceController,
+                            onCallRequest = { target ->
+                                onExecuteQuery(if (target.startsWith("call ", ignoreCase = true) || target.startsWith("dial ", ignoreCase = true)) target else "call $target")
+                            },
+                            onRequestContactPermission = onRequestContactPermission
+                        )
+                    }
+
+                    item {
+                        WhatsAppMessageCard(
+                            deviceController = deviceController,
+                            onRequestContactPermission = onRequestContactPermission,
+                            onSendWhatsApp = { target, message ->
+                                val result = deviceController.sendWhatsAppMessage(target, message)
+                                voiceManager.speak(result.second)
+                                Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+
+                    item {
+                        ScreenshotControlCard(
+                            deviceController = deviceController,
+                            onTakeScreenshot = {
+                                val currentAct = ActivityTracker.getCurrentActivity() ?: (context as? android.app.Activity)
+                                val result = deviceController.captureScreenshot(currentAct) { success, msg, uri ->
+                                    (context as? android.app.Activity)?.runOnUiThread {
+                                        if (success) {
+                                            Toast.makeText(context, "Screenshot captured and saved to Gallery!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                                voiceManager.speak(result.second)
+                                Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
+                            },
+                            onShareScreenshot = {
+                                val result = deviceController.shareLastScreenshot()
+                                voiceManager.speak(result.second)
+                                Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+
+                DashboardTab.HISTORY -> {
+                    item {
+                        Column {
+                            Text(
+                                text = "Echo Memory & Notes",
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                fontSize = 16.sp
+                            )
+                            Text(
+                                text = "Voice query history and voice-recorded notes",
+                                color = TextMuted,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    item {
+                        NotesAndHistoryView(
+                            notes = notesList,
+                            history = historyList,
+                            onDeleteNote = { note ->
+                                coroutineScope.launch {
+                                    database.assistantDao().deleteNote(note)
+                                }
+                            },
+                            onClearHistory = {
+                                coroutineScope.launch {
+                                    database.assistantDao().clearHistory()
+                                }
+                            }
+                        )
+                    }
+                }
+
+                DashboardTab.SETUP -> {
+                    item {
+                        Column {
+                            Text(
+                                text = "System Integration & Setup",
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                fontSize = 16.sp
+                            )
+                            Text(
+                                text = "Floating Orb overlay & Redmi background service",
+                                color = TextMuted,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    // Dedicated System Floating Orb Card
+                    item {
+                        var isOrbActive by remember { mutableStateOf(preferences.isFloatingBubbleEnabled) }
+                        GlassmorphicCard(
+                            borderColor = if (isOrbActive) VividViolet.copy(alpha = 0.6f) else NeonCyan.copy(alpha = 0.3f),
+                            backgroundColor = DarkNebulaSurface.copy(alpha = 0.95f)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    Brush.linearGradient(
+                                                        listOf(
+                                                            NeonCyan,
+                                                            VividViolet
+                                                        )
+                                                    )
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Mic,
+                                                contentDescription = "Floating Orb",
+                                                tint = Color.Black,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Column {
+                                            Text(
+                                                text = "System Floating Orb Overlay",
+                                                fontWeight = FontWeight.Bold,
+                                                color = TextPrimary,
+                                                fontSize = 15.sp
+                                            )
+                                            Text(
+                                                text = if (isOrbActive) "Active on screen • Drag & tap to speak" else "Stays visible over games & other apps",
+                                                color = if (isOrbActive) NeonCyan else TextSecondary,
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                    }
+
+                                    Switch(
+                                        checked = isOrbActive,
+                                        onCheckedChange = { enable ->
+                                            if (enable && !hasOverlayPermission) {
+                                                onRequestOverlayPermission()
+                                            } else {
+                                                isOrbActive = enable
+                                                preferences.isFloatingBubbleEnabled = enable
+                                                if (enable) {
+                                                    EchoFloatingBubbleService.start(context)
+                                                } else {
+                                                    EchoFloatingBubbleService.stop(context)
+                                                }
+                                            }
+                                        },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = Color.Black,
+                                            checkedTrackColor = VividViolet
+                                        )
+                                    )
+                                }
+
+                                if (!hasOverlayPermission) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Button(
+                                        onClick = onRequestOverlayPermission,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.buttonColors(containerColor = VividViolet),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Text("Grant 'Display Over Other Apps' Permission", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        RedmiSetupGuide(
+                            hasMicPermission = hasMicPermission,
+                            hasOverlayPermission = hasOverlayPermission,
+                            onRequestMicPermission = onRequestMicPermission,
+                            onRequestOverlayPermission = onRequestOverlayPermission,
+                            onOpenDefaultAssistantSettings = {
+                                deviceController.openDefaultAssistantSettings()
+                            },
+                            onOpenGestureSettings = {
+                                deviceController.openRedmiGestureSettings()
+                            },
+                            onTestAssistantOverlay = onOpenAssistantOverlay
+                        )
                     }
                 }
             }
 
             item {
-                RedmiSetupGuide(
-                    hasMicPermission = hasMicPermission,
-                    hasOverlayPermission = hasOverlayPermission,
-                    onRequestMicPermission = onRequestMicPermission,
-                    onRequestOverlayPermission = onRequestOverlayPermission,
-                    onOpenDefaultAssistantSettings = {
-                        deviceController.openDefaultAssistantSettings()
-                    },
-                    onOpenGestureSettings = {
-                        deviceController.openRedmiGestureSettings()
-                    },
-                    onTestAssistantOverlay = onOpenAssistantOverlay
-                )
-            }
-
-            // Section 3: Notes & History
-            item {
-                Text(
-                    text = "Echo Memory & Notes",
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
-                    fontSize = 16.sp
-                )
-            }
-
-            item {
-                NotesAndHistoryView(
-                    notes = notesList,
-                    history = historyList,
-                    onDeleteNote = { note ->
-                        coroutineScope.launch {
-                            database.assistantDao().deleteNote(note)
-                        }
-                    },
-                    onClearHistory = {
-                        coroutineScope.launch {
-                            database.assistantDao().clearHistory()
-                        }
-                    }
-                )
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(30.dp))
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -1214,5 +1723,13 @@ fun MainAssistantDashboard(
                 Spacer(modifier = Modifier.height(10.dp))
             }
         }
+    }
+
+    if (showComparisonSheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        VersionComparisonSheet(
+            sheetState = sheetState,
+            onDismiss = { showComparisonSheet = false }
+        )
     }
 }

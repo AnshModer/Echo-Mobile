@@ -24,6 +24,18 @@ val TextPrimary = Color(0xFFF8FAFC)
 val TextSecondary = Color(0xFF94A3B8)
 val TextMuted = Color(0xFF64748B)
 
+// Stitch Design Tokens
+val StitchObsidianLowest = Color(0xFF0A0E1A)
+val StitchSurfaceLow = Color(0xFF171B28)
+val StitchSurface = Color(0xFF1B1F2C)
+val StitchSurfaceHigh = Color(0xFF262A37)
+val StitchSurfaceHighest = Color(0xFF313442)
+val StitchCyanContainer = Color(0xFF00E5FF)
+val StitchCyanFixed = Color(0xFF9CF0FF)
+val StitchVioletContainer = Color(0xFF7701D0)
+val StitchOnSurface = Color(0xFFDFE2F3)
+val StitchOnSurfaceVariant = Color(0xFFBAC9CC)
+
 // M3 compatibility tokens
 val Purple80 = NeonCyan
 val PurpleGrey80 = ElectricBlue

@@ -338,6 +338,7 @@ class EchoFloatingBubbleService : Service() {
             try {
                 // Process the command via NLP Engine / Device Controller / Gemini AI
                 val actionResult: ActionResult = nlpEngine.processQuery(query)
+                voiceManager.setLastActionResult(actionResult)
 
                 voiceManager.setState(AssistantState.SPEAKING)
                 overlayLayout?.updateState(AssistantState.SPEAKING, actionResult.responseText)
