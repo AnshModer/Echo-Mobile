@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.Bluetooth
@@ -67,7 +68,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -730,7 +734,8 @@ fun ContactCallCard(
 fun WhatsAppMessageCard(
     deviceController: DeviceController,
     onSendWhatsApp: (target: String, message: String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRequestContactPermission: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     var targetText by remember { mutableStateOf("") }
@@ -810,6 +815,37 @@ fun WhatsAppMessageCard(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Open", color = EmeraldGlow, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            if (!hasContactPermission && onRequestContactPermission != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(EmeraldGlow.copy(alpha = 0.12f))
+                        .clickable { onRequestContactPermission() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Enable contact matching for names (e.g. Mom)",
+                        color = EmeraldGlow,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Grant",
+                        color = Color.Black,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(EmeraldGlow)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
                 }
             }
 
@@ -1055,6 +1091,7 @@ fun ScreenshotControlCard(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val recentScreenshots = remember { mutableStateOf(com.example.engine.ScreenshotHelper.getRecentScreenshots(context)) }
 
     fun refreshList() {
@@ -1113,7 +1150,12 @@ fun ScreenshotControlCard(
                 Button(
                     onClick = {
                         onTakeScreenshot()
-                        refreshList()
+                        coroutineScope.launch {
+                            delay(400)
+                            refreshList()
+                            delay(1000)
+                            refreshList()
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = NeonCyan
@@ -1140,7 +1182,13 @@ fun ScreenshotControlCard(
                 }
 
                 Button(
-                    onClick = onShareScreenshot,
+                    onClick = {
+                        onShareScreenshot()
+                        coroutineScope.launch {
+                            delay(500)
+                            refreshList()
+                        }
+                    },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF1E293B)
                     ),
@@ -1160,7 +1208,51 @@ fun ScreenshotControlCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            // System-wide accessibility screenshot prompt
+            val isAccessibilityActive = com.example.service.EchoAccessibilityService.isServiceRunning
+            if (!isAccessibilityActive) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF1E293B).copy(alpha = 0.7f))
+                        .clickable {
+                            com.example.service.EchoAccessibilityService.openAccessibilitySettings(context)
+                        }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(
+                            imageVector = Icons.Default.Accessibility,
+                            contentDescription = "Accessibility",
+                            tint = NeonCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Global Screenshot (Capture any app)",
+                            color = NeonCyan,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Text(
+                        text = "Enable",
+                        color = Color.Black,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(NeonCyan)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Shortcut Info
             Box(
@@ -1179,7 +1271,7 @@ fun ScreenshotControlCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Hardware Shortcuts: 3-finger swipe down or press Power + Volume Down",
+                        text = "Voice: \"Take a screenshot\" | Hardware: Power + Vol Down",
                         color = TextSecondary,
                         fontSize = 11.5.sp,
                         lineHeight = 15.sp

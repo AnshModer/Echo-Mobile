@@ -730,34 +730,66 @@ class EchoNlpEngine(
             return Pair("", "")
         }
 
-        // Pattern 1: "send whatsapp message to [target]: [message]" or "send whatsapp to [target] [message]"
-        val sendToRegex = Regex("^(?i)(please\\s+)?(can\\s+you\\s+)?(send\\s+(a\\s+)?whatsapp\\s+(message\\s+)?to|whatsapp\\s+message\\s+to|whatsapp\\s+to|send\\s+message\\s+on\\s+whatsapp\\s+to)\\s+([a-zA-Z0-9+\\s]+?)(\\s*(:|saying|that|,|message|with message)\\s*|\\s+)(.*)$")
-        val match1 = sendToRegex.find(clean)
-        if (match1 != null) {
-            val target = match1.groupValues[6].trim()
-            val msg = match1.groupValues[8].trim()
-            return Pair(target, msg)
+        // Pattern: "message [target] on whatsapp ..." or "text [target] on whatsapp ..."
+        if (lower.startsWith("message ") || lower.startsWith("text ")) {
+            val waIndex = lower.indexOf(" on whatsapp")
+            if (waIndex != -1) {
+                val target = clean.substring(clean.indexOf(' ') + 1, waIndex).trim()
+                val afterWa = clean.substring(waIndex + " on whatsapp".length).trim()
+                val msg = afterWa.replace(Regex("^(?i)(saying|that|:|message|with message)?\\s*"), "").trim()
+                return Pair(target, msg)
+            }
         }
 
-        // Pattern 2: "whatsapp [target] [message]" or "whatsapp [target] saying [message]"
-        val waDirectRegex = Regex("^(?i)(please\\s+)?(can\\s+you\\s+)?whatsapp\\s+([a-zA-Z0-9+\\s]+?)(\\s*(:|saying|that|,|with message)\\s*|\\s+)(.*)$")
-        val match2 = waDirectRegex.find(clean)
-        if (match2 != null) {
-            val target = match2.groupValues[3].trim()
-            val msg = match2.groupValues[5].trim()
-            return Pair(target, msg)
+        // Pattern: "send [a] whatsapp [message] to [target] [delimiters] [message]"
+        val prefixRegex = Regex("^(?i)(please\\s+)?(can\\s+you\\s+)?(send\\s+(a\\s+)?whatsapp\\s+(message\\s+)?to|whatsapp\\s+message\\s+to|whatsapp\\s+to|send\\s+message\\s+on\\s+whatsapp\\s+to)\\s+")
+        val matchPrefix = prefixRegex.find(clean)
+        if (matchPrefix != null) {
+            val remainder = clean.substring(matchPrefix.range.last + 1).trim()
+            val delimRegex = Regex("(?i)\\s*(:|\\s+saying\\s+|\\s+that\\s+|,\\s*|\\s+with\\s+message\\s+|\\s+message\\s+)\\s*")
+            val delimMatch = delimRegex.find(remainder)
+            if (delimMatch != null) {
+                val target = remainder.substring(0, delimMatch.range.first).trim()
+                val msg = remainder.substring(delimMatch.range.last + 1).trim()
+                return Pair(target, msg)
+            } else {
+                val spaceIdx = remainder.indexOf(' ')
+                return if (spaceIdx > 0) {
+                    val firstWord = remainder.substring(0, spaceIdx).trim()
+                    val msg = remainder.substring(spaceIdx + 1).trim()
+                    Pair(firstWord, msg)
+                } else {
+                    Pair(remainder, "")
+                }
+            }
         }
 
-        // Pattern 3: "message [target] on whatsapp (saying) [message]"
-        val msgOnWaRegex = Regex("^(?i)(please\\s+)?(can\\s+you\\s+)?(message|text)\\s+([a-zA-Z0-9+\\s]+?)\\s+on\\s+whatsapp(\\s*(:|saying|that|,|with message)\\s*|\\s+)(.*)$")
-        val match3 = msgOnWaRegex.find(clean)
-        if (match3 != null) {
-            val target = match3.groupValues[4].trim()
-            val msg = match3.groupValues[6].trim()
-            return Pair(target, msg)
+        // Pattern: "whatsapp [target] [message]" or "whatsapp [target]"
+        if (lower.startsWith("whatsapp ")) {
+            val remainder = clean.substring("whatsapp ".length).trim()
+            if (remainder.lowercase(Locale.ROOT).startsWith("message ")) {
+                val msg = remainder.substring("message ".length).trim()
+                return Pair("", msg)
+            }
+            val delimRegex = Regex("(?i)\\s*(:|\\s+saying\\s+|\\s+that\\s+|,\\s*|\\s+with\\s+message\\s+|\\s+message\\s+)\\s*")
+            val delimMatch = delimRegex.find(remainder)
+            if (delimMatch != null) {
+                val target = remainder.substring(0, delimMatch.range.first).trim()
+                val msg = remainder.substring(delimMatch.range.last + 1).trim()
+                return Pair(target, msg)
+            } else {
+                val spaceIdx = remainder.indexOf(' ')
+                return if (spaceIdx > 0) {
+                    val firstWord = remainder.substring(0, spaceIdx).trim()
+                    val rest = remainder.substring(spaceIdx + 1).trim()
+                    Pair(firstWord, rest)
+                } else {
+                    Pair(remainder, "")
+                }
+            }
         }
 
-        // Pattern 4: "send whatsapp message [message]" or "whatsapp [message]"
+        // Generic fallback:
         val genericMsg = clean.replace(Regex("^(?i)(please\\s+)?(can\\s+you\\s+)?(send\\s+(a\\s+)?whatsapp\\s+(message)?|whatsapp\\s+message|whatsapp)\\s*:?\\s*"), "").trim()
         return Pair("", genericMsg)
     }

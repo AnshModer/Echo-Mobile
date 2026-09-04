@@ -54,6 +54,14 @@
         <package android:name="com.android.camera" />
         <package android:name="com.miui.camera" />
         <package android:name="com.miui.calculator" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="whatsapp" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="text/plain" />
+        </intent>
     </queries>
 
     <application
@@ -157,6 +165,19 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Floating orb assistant overlay for fast access" />
+        </service>
+
+        <!-- Echo Accessibility Service for Global Screenshot & Assistant Gestures -->
+        <service
+            android:name=".service.EchoAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/echo_accessibility_service_config" />
         </service>
 
         <!-- File Provider for Screenshot and Media Sharing -->

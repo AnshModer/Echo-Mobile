@@ -342,48 +342,78 @@ class DeviceController(private val context: Context) {
             }
         }
 
-        return try {
-            val hasWhatsApp = isAppInstalled("com.whatsapp") || isAppInstalled("com.whatsapp.w4b")
-            val pkg = if (isAppInstalled("com.whatsapp")) "com.whatsapp" else "com.whatsapp.w4b"
+        val hasWhatsApp = isAppInstalled("com.whatsapp") || isAppInstalled("com.whatsapp.w4b")
+        val pkg = if (isAppInstalled("com.whatsapp")) "com.whatsapp" else "com.whatsapp.w4b"
 
-            if (targetNumber.isNotBlank()) {
-                val waNumber = targetNumber.replace("+", "")
-                val uri = Uri.parse("https://api.whatsapp.com/send?phone=$waNumber&text=${Uri.encode(cleanMsg)}")
-                val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-                    if (hasWhatsApp) setPackage(pkg)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                val msgDesc = if (cleanMsg.isNotBlank()) " with message: \"$cleanMsg\"" else ""
-                Pair(true, "Opening WhatsApp to message $displayName$msgDesc")
-            } else if (cleanMsg.isNotBlank()) {
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, cleanMsg)
-                    if (hasWhatsApp) setPackage(pkg)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-                Pair(true, "Opening WhatsApp with message: \"$cleanMsg\"")
-            } else {
-                openWhatsApp()
+        if (targetNumber.isNotBlank()) {
+            var waNumber = targetNumber.replace("+", "").replace(Regex("[^0-9]"), "")
+            // Normalize standard 10-digit mobile numbers for WhatsApp international format if applicable
+            if (waNumber.length == 10 && (Locale.getDefault().country == "IN" || context.resources.configuration.locales.get(0).country == "IN")) {
+                waNumber = "91$waNumber"
             }
-        } catch (e: Exception) {
+
+            // Attempt 1: Native WhatsApp custom URI scheme whatsapp://send
             try {
-                val waNumber = targetNumber.replace("+", "").replace(Regex("[^0-9]"), "")
-                val url = if (waNumber.isNotBlank()) {
-                    "https://wa.me/$waNumber?text=${Uri.encode(cleanMsg)}"
-                } else {
-                    "https://web.whatsapp.com"
+                val waSchemeUri = Uri.parse("whatsapp://send?phone=$waNumber&text=${Uri.encode(cleanMsg)}")
+                val waIntent = Intent(Intent.ACTION_VIEW, waSchemeUri).apply {
+                    if (hasWhatsApp) setPackage(pkg)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                context.startActivity(waIntent)
+                val msgDesc = if (cleanMsg.isNotBlank()) " with message: \"$cleanMsg\"" else ""
+                return Pair(true, "Opening WhatsApp for $displayName$msgDesc")
+            } catch (e1: Exception) {
+                // Scheme failed or package mismatch, proceed to Attempt 2
+            }
+
+            // Attempt 2: Universal api.whatsapp.com / wa.me link (without hardcoded setPackage)
+            try {
+                val waWebUri = Uri.parse("https://api.whatsapp.com/send?phone=$waNumber&text=${Uri.encode(cleanMsg)}")
+                val webIntent = Intent(Intent.ACTION_VIEW, waWebUri).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(webIntent)
-                Pair(true, "Opening WhatsApp for $displayName")
+                val msgDesc = if (cleanMsg.isNotBlank()) " with message: \"$cleanMsg\"" else ""
+                return Pair(true, "Opening WhatsApp for $displayName$msgDesc")
             } catch (e2: Exception) {
-                Pair(false, "Could not open WhatsApp: ${e.localizedMessage}")
+                return Pair(false, "Could not open WhatsApp: ${e2.localizedMessage}")
             }
+        } else if (cleanMsg.isNotBlank()) {
+            // Target is a name that wasn't found in phone contacts, or no target provided
+            if (hasWhatsApp) {
+                try {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, cleanMsg)
+                        setPackage(pkg)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                    val targetPrompt = if (displayName.isNotBlank()) {
+                        "Opening WhatsApp — select $displayName to send: \"$cleanMsg\""
+                    } else {
+                        "Opening WhatsApp with message: \"$cleanMsg\""
+                    }
+                    return Pair(true, targetPrompt)
+                } catch (e: Exception) {
+                    openWhatsApp()
+                    return Pair(true, "Opening WhatsApp to send: \"$cleanMsg\"")
+                }
+            } else {
+                // WhatsApp not installed: open WhatsApp web or install prompt
+                try {
+                    val webUrl = "https://wa.me/?text=${Uri.encode(cleanMsg)}"
+                    val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(webUrl)).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(webIntent)
+                    return Pair(true, "Opening WhatsApp Web with message: \"$cleanMsg\"")
+                } catch (e: Exception) {
+                    return Pair(false, "WhatsApp is not installed on this device.")
+                }
+            }
+        } else {
+            return openWhatsApp()
         }
     }
 
@@ -391,27 +421,40 @@ class DeviceController(private val context: Context) {
         return openApp("whatsapp")
     }
 
-    private fun isAppInstalled(packageName: String): Boolean {
+    fun isAppInstalled(packageName: String): Boolean {
         return try {
             context.packageManager.getPackageInfo(packageName, 0)
             true
         } catch (e: Exception) {
-            false
+            try {
+                context.packageManager.getLaunchIntentForPackage(packageName) != null
+            } catch (e2: Exception) {
+                false
+            }
         }
     }
 
     // --- SCREENSHOT CONTROLLER ---
     fun captureScreenshot(activity: android.app.Activity? = null, onComplete: ((Boolean, String, Uri?) -> Unit)? = null): Pair<Boolean, String> {
-        if (activity != null) {
-            ScreenshotHelper.captureActivityScreenshot(activity) { success, msg, uri ->
+        val targetActivity = activity ?: ActivityTracker.getCurrentActivity() ?: (context as? android.app.Activity)
+        if (targetActivity != null) {
+            ScreenshotHelper.captureActivityScreenshot(targetActivity) { success, msg, uri ->
                 onComplete?.invoke(success, msg, uri)
             }
-            return Pair(true, "Screenshot captured and saved to gallery.")
+            return Pair(true, "Screenshot captured and saved to Gallery.")
+        }
+
+        // If no active Activity, check if Echo Accessibility Service can capture system-wide
+        if (com.example.service.EchoAccessibilityService.isServiceRunning) {
+            val taken = com.example.service.EchoAccessibilityService.takeSystemScreenshot()
+            if (taken) {
+                return Pair(true, "System screenshot captured and saved.")
+            }
         }
 
         val lastUri = ScreenshotHelper.getLastScreenshotUri()
         if (lastUri != null) {
-            return Pair(true, "Screenshot captured and saved to gallery.")
+            return Pair(true, "Screenshot is available in your gallery.")
         }
 
         val recent = ScreenshotHelper.getRecentScreenshots(context)
@@ -419,7 +462,7 @@ class DeviceController(private val context: Context) {
             return Pair(true, "Screenshot is available in your gallery.")
         }
 
-        return Pair(true, "Screenshot triggered. You can also capture anytime via the Screen Capture button or Power + Volume Down.")
+        return Pair(false, "Open Echo Assistant or enable Echo Accessibility in Settings to capture screenshots.")
     }
 
     fun shareLastScreenshot(): Pair<Boolean, String> {

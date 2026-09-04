@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
+import com.example.engine.ActivityTracker
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -263,6 +265,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        ActivityTracker.setCurrentActivity(this)
         if (preferences.isFloatingBubbleEnabled) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
                 if (!EchoFloatingBubbleService.isRunning) {
@@ -270,6 +273,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        ActivityTracker.clearCurrentActivity(this)
     }
 
     private fun executeCommand(query: String) {
@@ -666,17 +674,11 @@ fun MainAssistantDashboard(
             item {
                 WhatsAppMessageCard(
                     deviceController = deviceController,
+                    onRequestContactPermission = onRequestContactPermission,
                     onSendWhatsApp = { target, message ->
-                        val cmd = if (target.isNotBlank() && message.isNotBlank()) {
-                            "send whatsapp message to $target: $message"
-                        } else if (target.isNotBlank()) {
-                            "whatsapp $target"
-                        } else if (message.isNotBlank()) {
-                            "send whatsapp message $message"
-                        } else {
-                            "open whatsapp"
-                        }
-                        onExecuteQuery(cmd)
+                        val result = deviceController.sendWhatsAppMessage(target, message)
+                        voiceManager.speak(result.second)
+                        Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -685,10 +687,23 @@ fun MainAssistantDashboard(
                 ScreenshotControlCard(
                     deviceController = deviceController,
                     onTakeScreenshot = {
-                        onExecuteQuery("take a screenshot")
+                        val currentAct = ActivityTracker.getCurrentActivity() ?: (context as? android.app.Activity)
+                        val result = deviceController.captureScreenshot(currentAct) { success, msg, uri ->
+                            (context as? android.app.Activity)?.runOnUiThread {
+                                if (success) {
+                                    Toast.makeText(context, "Screenshot captured and saved to Gallery!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                        voiceManager.speak(result.second)
+                        Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
                     },
                     onShareScreenshot = {
-                        onExecuteQuery("share screenshot")
+                        val result = deviceController.shareLastScreenshot()
+                        voiceManager.speak(result.second)
+                        Toast.makeText(context, result.second, Toast.LENGTH_SHORT).show()
                     }
                 )
             }
